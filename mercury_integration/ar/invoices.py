@@ -295,7 +295,7 @@ def retry_failed_invoice_creation() -> None:
 			"payment_gateway": "Mercury",
 			"payment_request_type": "Inward",
 			"status": ("in", OPEN_PR_STATUSES),
-			"mercury_invoice_id": ("in", ("", None)),
+			"mercury_invoice_id": ("is", "not set"),
 		},
 		pluck="name",
 	)
