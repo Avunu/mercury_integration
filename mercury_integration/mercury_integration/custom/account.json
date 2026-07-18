@@ -1,0 +1,18 @@
+{
+  "custom_fields": [
+    {
+      "dt": "Account",
+      "fieldname": "mercury_category_id",
+      "fieldtype": "Data",
+      "insert_after": "account_number",
+      "label": "Mercury Category ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "read_only": 1,
+      "unique": 1
+    }
+  ],
+  "doctype": "Account",
+  "property_setters": [],
+  "sync_on_migrate": 1
+}

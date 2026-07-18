@@ -1,0 +1,18 @@
+{
+  "custom_fields": [
+    {
+      "dt": "Bank Account",
+      "fieldname": "mercury_account_id",
+      "fieldtype": "Data",
+      "insert_after": "integration_id",
+      "label": "Mercury Account ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "read_only": 1,
+      "unique": 1
+    }
+  ],
+  "doctype": "Bank Account",
+  "property_setters": [],
+  "sync_on_migrate": 1
+}

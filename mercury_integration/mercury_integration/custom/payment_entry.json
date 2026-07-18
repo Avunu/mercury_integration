@@ -1,0 +1,47 @@
+{
+  "custom_fields": [
+    {
+      "allow_on_submit": 1,
+      "dt": "Payment Entry",
+      "fieldname": "mercury_transaction_id",
+      "fieldtype": "Data",
+      "insert_after": "reference_date",
+      "label": "Mercury Transaction ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1,
+      "unique": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "dt": "Payment Entry",
+      "fieldname": "mercury_payment_status",
+      "fieldtype": "Select",
+      "in_standard_filter": 1,
+      "insert_after": "mercury_transaction_id",
+      "label": "Mercury Payment Status",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "options": "\nQueued\nPending Approval\nSent\nPosted\nReconciled\nFailed\nBlocked - Duplicate\nRejected\nCancelled",
+      "print_hide": 1,
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "dt": "Payment Entry",
+      "fieldname": "mercury_approval_request_id",
+      "fieldtype": "Data",
+      "hidden": 1,
+      "insert_after": "mercury_payment_status",
+      "label": "Mercury Approval Request ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1
+    }
+  ],
+  "doctype": "Payment Entry",
+  "property_setters": [],
+  "sync_on_migrate": 1
+}

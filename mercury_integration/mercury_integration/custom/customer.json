@@ -1,0 +1,19 @@
+{
+  "custom_fields": [
+    {
+      "dt": "Customer",
+      "fieldname": "mercury_customer_id",
+      "fieldtype": "Data",
+      "insert_after": "customer_details",
+      "label": "Mercury Customer ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1,
+      "unique": 1
+    }
+  ],
+  "doctype": "Customer",
+  "property_setters": [],
+  "sync_on_migrate": 1
+}

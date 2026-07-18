@@ -1,0 +1,44 @@
+{
+  "custom_fields": [
+    {
+      "allow_on_submit": 1,
+      "dt": "Payment Request",
+      "fieldname": "mercury_invoice_id",
+      "fieldtype": "Data",
+      "insert_after": "payment_url",
+      "label": "Mercury Invoice ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1,
+      "unique": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "dt": "Payment Request",
+      "fieldname": "mercury_reminder_count",
+      "fieldtype": "Int",
+      "insert_after": "mercury_invoice_id",
+      "label": "Mercury Reminders Sent",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1
+    },
+    {
+      "allow_on_submit": 1,
+      "dt": "Payment Request",
+      "fieldname": "mercury_last_reminder_on",
+      "fieldtype": "Date",
+      "insert_after": "mercury_reminder_count",
+      "label": "Mercury Last Reminder On",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1
+    }
+  ],
+  "doctype": "Payment Request",
+  "property_setters": [],
+  "sync_on_migrate": 1
+}

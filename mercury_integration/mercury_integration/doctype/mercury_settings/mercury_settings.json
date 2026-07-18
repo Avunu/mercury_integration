@@ -1,0 +1,465 @@
+{
+ "actions": [],
+ "creation": "2026-07-18 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "credentials_section",
+  "enabled",
+  "use_sandbox",
+  "company",
+  "credentials_column",
+  "api_token",
+  "sandbox_api_token",
+  "transaction_sync_section",
+  "automatic_sync",
+  "sync_start_date",
+  "transaction_sync_column",
+  "create_pending_transactions",
+  "events_webhook_section",
+  "webhook_endpoint_id",
+  "webhook_secret",
+  "webhook_status",
+  "events_webhook_column",
+  "events_cursor",
+  "events_last_polled_at",
+  "category_sync_section",
+  "enable_category_sync",
+  "sync_income_accounts",
+  "sync_expense_accounts",
+  "category_sync_column",
+  "category_delete_policy",
+  "writeback_enabled",
+  "writeback_note",
+  "auto_journal_section",
+  "enable_auto_journal",
+  "require_attachment",
+  "auto_journal_max_amount",
+  "auto_journal_column",
+  "auto_journal_for_expense",
+  "auto_journal_for_income",
+  "default_cost_center",
+  "ar_gateway_section",
+  "enable_ar_gateway",
+  "ar_destination_bank_account",
+  "ar_clearing_account",
+  "ar_email_sender",
+  "ar_gateway_column",
+  "ach_debit_enabled",
+  "credit_card_enabled",
+  "use_real_account_number",
+  "card_fees_account",
+  "reminders_section",
+  "send_overdue_reminders",
+  "reminder_interval_days",
+  "reminders_column",
+  "max_reminders",
+  "payouts_section",
+  "enable_payouts",
+  "payout_mode",
+  "auto_reconcile_payouts",
+  "payouts_column",
+  "payroll_funding_bank_account",
+  "vendor_funding_bank_account",
+  "notifications_section",
+  "alert_recipients"
+ ],
+ "fields": [
+  {
+   "fieldname": "credentials_section",
+   "fieldtype": "Section Break",
+   "label": "Credentials"
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "default": "0",
+   "fieldname": "use_sandbox",
+   "fieldtype": "Check",
+   "label": "Use Sandbox"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "mandatory_depends_on": "eval:doc.enabled"
+  },
+  {
+   "fieldname": "credentials_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:!doc.use_sandbox",
+   "fieldname": "api_token",
+   "fieldtype": "Password",
+   "label": "API Token"
+  },
+  {
+   "depends_on": "eval:doc.use_sandbox",
+   "fieldname": "sandbox_api_token",
+   "fieldtype": "Password",
+   "label": "Sandbox API Token"
+  },
+  {
+   "fieldname": "transaction_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Transaction Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "automatic_sync",
+   "fieldtype": "Check",
+   "label": "Automatic Transaction Sync"
+  },
+  {
+   "description": "Initial backfill floor. Defaults to 12 months back when empty.",
+   "fieldname": "sync_start_date",
+   "fieldtype": "Date",
+   "label": "Sync Start Date"
+  },
+  {
+   "fieldname": "transaction_sync_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Create draft Bank Transactions for pending Mercury transactions instead of waiting for them to post.",
+   "fieldname": "create_pending_transactions",
+   "fieldtype": "Check",
+   "label": "Create Pending Transactions"
+  },
+  {
+   "fieldname": "events_webhook_section",
+   "fieldtype": "Section Break",
+   "label": "Events & Webhook"
+  },
+  {
+   "fieldname": "webhook_endpoint_id",
+   "fieldtype": "Data",
+   "label": "Webhook Endpoint ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Signing Secret",
+   "read_only": 1
+  },
+  {
+   "fieldname": "webhook_status",
+   "fieldtype": "Data",
+   "label": "Webhook Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "events_webhook_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "events_cursor",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Events Cursor",
+   "read_only": 1
+  },
+  {
+   "fieldname": "events_last_polled_at",
+   "fieldtype": "Datetime",
+   "label": "Events Last Polled At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "category_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Category (GL Code) Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_category_sync",
+   "fieldtype": "Check",
+   "label": "Enable Category Sync"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_category_sync",
+   "fieldname": "sync_income_accounts",
+   "fieldtype": "Check",
+   "label": "Sync Income Accounts"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_category_sync",
+   "fieldname": "sync_expense_accounts",
+   "fieldtype": "Check",
+   "label": "Sync Expense Accounts"
+  },
+  {
+   "fieldname": "category_sync_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Never Delete",
+   "depends_on": "eval:doc.enable_category_sync",
+   "fieldname": "category_delete_policy",
+   "fieldtype": "Select",
+   "label": "Category Delete Policy",
+   "options": "Never Delete\nDelete in Mercury"
+  },
+  {
+   "default": "0",
+   "description": "Push the reconciled GL account back onto the Mercury transaction as its category.",
+   "fieldname": "writeback_enabled",
+   "fieldtype": "Check",
+   "label": "Enable GL Writeback"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.writeback_enabled",
+   "description": "Include an \"ERP: {voucher}\" note on the Mercury transaction.",
+   "fieldname": "writeback_note",
+   "fieldtype": "Check",
+   "label": "Writeback Voucher Note"
+  },
+  {
+   "fieldname": "auto_journal_section",
+   "fieldtype": "Section Break",
+   "label": "Auto Journal"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create and reconcile Journal Entries for Mercury transactions that are categorized (and have a receipt attached).",
+   "fieldname": "enable_auto_journal",
+   "fieldtype": "Check",
+   "label": "Enable Auto Journal Entries"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_auto_journal",
+   "fieldname": "require_attachment",
+   "fieldtype": "Check",
+   "label": "Require Attachment"
+  },
+  {
+   "depends_on": "eval:doc.enable_auto_journal",
+   "description": "Skip auto journal entries above this amount. Zero means unlimited.",
+   "fieldname": "auto_journal_max_amount",
+   "fieldtype": "Currency",
+   "label": "Maximum Amount"
+  },
+  {
+   "fieldname": "auto_journal_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_auto_journal",
+   "fieldname": "auto_journal_for_expense",
+   "fieldtype": "Check",
+   "label": "For Expense Accounts"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_auto_journal",
+   "fieldname": "auto_journal_for_income",
+   "fieldtype": "Check",
+   "label": "For Income Accounts"
+  },
+  {
+   "depends_on": "eval:doc.enable_auto_journal",
+   "fieldname": "default_cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "ar_gateway_section",
+   "fieldtype": "Section Break",
+   "label": "Accounts Receivable Gateway"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_ar_gateway",
+   "fieldtype": "Check",
+   "label": "Enable AR Gateway"
+  },
+  {
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "description": "Mercury account that receives invoice payments. Must be linked to a Mercury Account ID.",
+   "fieldname": "ar_destination_bank_account",
+   "fieldtype": "Link",
+   "label": "Destination Bank Account",
+   "mandatory_depends_on": "eval:doc.enable_ar_gateway",
+   "options": "Bank Account"
+  },
+  {
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "description": "Clearing GL account for the Mercury payment gateway (Payment Gateway Account payment account).",
+   "fieldname": "ar_clearing_account",
+   "fieldtype": "Link",
+   "label": "AR Clearing Account",
+   "mandatory_depends_on": "eval:doc.enable_ar_gateway",
+   "options": "Account"
+  },
+  {
+   "default": "ERP",
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "description": "Who emails the payer: the ERP Payment Request email with the pay link, or Mercury's own invoice email.",
+   "fieldname": "ar_email_sender",
+   "fieldtype": "Select",
+   "label": "Invoice Email Sender",
+   "options": "ERP\nMercury"
+  },
+  {
+   "fieldname": "ar_gateway_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "fieldname": "ach_debit_enabled",
+   "fieldtype": "Check",
+   "label": "Accept ACH Debit"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "fieldname": "credit_card_enabled",
+   "fieldtype": "Check",
+   "label": "Accept Credit Card"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "fieldname": "use_real_account_number",
+   "fieldtype": "Check",
+   "label": "Show Real Account Number"
+  },
+  {
+   "depends_on": "eval:doc.credit_card_enabled",
+   "fieldname": "card_fees_account",
+   "fieldtype": "Link",
+   "label": "Card Fees Account",
+   "options": "Account"
+  },
+  {
+   "depends_on": "eval:doc.enable_ar_gateway",
+   "fieldname": "reminders_section",
+   "fieldtype": "Section Break",
+   "label": "Overdue Reminders"
+  },
+  {
+   "default": "1",
+   "fieldname": "send_overdue_reminders",
+   "fieldtype": "Check",
+   "label": "Send Overdue Reminders"
+  },
+  {
+   "default": "7",
+   "depends_on": "eval:doc.send_overdue_reminders",
+   "fieldname": "reminder_interval_days",
+   "fieldtype": "Int",
+   "label": "Reminder Interval (Days)"
+  },
+  {
+   "fieldname": "reminders_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "3",
+   "depends_on": "eval:doc.send_overdue_reminders",
+   "fieldname": "max_reminders",
+   "fieldtype": "Int",
+   "label": "Maximum Reminders"
+  },
+  {
+   "fieldname": "payouts_section",
+   "fieldtype": "Section Break",
+   "label": "Payouts"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_payouts",
+   "fieldtype": "Check",
+   "label": "Enable Payouts"
+  },
+  {
+   "default": "Request Approval",
+   "depends_on": "eval:doc.enable_payouts",
+   "description": "Request Approval queues each payment for approval in Mercury by a second user. Direct Send executes immediately and requires a read-write token with this server's IP whitelisted.",
+   "fieldname": "payout_mode",
+   "fieldtype": "Select",
+   "label": "Payout Mode",
+   "options": "Request Approval\nDirect Send"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_payouts",
+   "fieldname": "auto_reconcile_payouts",
+   "fieldtype": "Check",
+   "label": "Auto Reconcile Payouts"
+  },
+  {
+   "fieldname": "payouts_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_payouts",
+   "fieldname": "payroll_funding_bank_account",
+   "fieldtype": "Link",
+   "label": "Payroll Funding Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "depends_on": "eval:doc.enable_payouts",
+   "fieldname": "vendor_funding_bank_account",
+   "fieldtype": "Link",
+   "label": "Vendor Funding Bank Account",
+   "options": "Bank Account"
+  },
+  {
+   "fieldname": "notifications_section",
+   "fieldtype": "Section Break",
+   "label": "Notifications"
+  },
+  {
+   "description": "Comma-separated email addresses alerted on sync, billing, and payout failures.",
+   "fieldname": "alert_recipients",
+   "fieldtype": "Small Text",
+   "label": "Alert Recipients"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-07-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Mercury Integration",
+ "name": "Mercury Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

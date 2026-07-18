@@ -1,0 +1,53 @@
+{
+  "custom_fields": [
+    {
+      "collapsible": 1,
+      "dt": "Supplier",
+      "fieldname": "mercury_section",
+      "fieldtype": "Section Break",
+      "insert_after": "accounts",
+      "label": "Mercury Payments",
+      "module": "Mercury Integration",
+      "print_hide": 1
+    },
+    {
+      "dt": "Supplier",
+      "fieldname": "mercury_recipient_id",
+      "fieldtype": "Data",
+      "insert_after": "mercury_section",
+      "label": "Mercury Recipient ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1,
+      "unique": 1
+    },
+    {
+      "dt": "Supplier",
+      "fieldname": "mercury_recipient_status",
+      "fieldtype": "Select",
+      "insert_after": "mercury_recipient_id",
+      "label": "Mercury Recipient Status",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "options": "\nInvite Sent\nActive\nDisabled",
+      "print_hide": 1,
+      "read_only": 1
+    },
+    {
+      "dt": "Supplier",
+      "fieldname": "mercury_invite_id",
+      "fieldtype": "Data",
+      "hidden": 1,
+      "insert_after": "mercury_recipient_status",
+      "label": "Mercury Invite ID",
+      "module": "Mercury Integration",
+      "no_copy": 1,
+      "print_hide": 1,
+      "read_only": 1
+    }
+  ],
+  "doctype": "Supplier",
+  "property_setters": [],
+  "sync_on_migrate": 1
+}
