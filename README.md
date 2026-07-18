@@ -8,10 +8,6 @@ payroll & vendor ACH payouts, bank transaction sync + reconciliation, Chart of
 Accounts ↔ Mercury category (GL code) sync, automatic journal entries, and
 transaction attachment import.
 
-Replaces GoCardless (payment requests / e-Billing) and Plaid (bank feed) on
-this bench. Design doc: `.claude/plans/plan-the-design-and-unified-toast.md`
-at the bench root.
-
 ## Architecture
 
 - **`mercury_integration/client/`** — frappe-free typed Mercury API client
