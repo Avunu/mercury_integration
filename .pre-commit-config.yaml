@@ -31,7 +31,7 @@ repos:
         exclude: '/doctype/[^/]+/[^/]+\.py$'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+    rev: v0.15.22
     hooks:
       - id: ruff
         name: "Run ruff import sorter"
@@ -69,7 +69,7 @@ repos:
           )$
 
   - repo: https://github.com/agritheory/test_utils
-    rev: v1.25.1
+    rev: v1.28.0
     hooks:
       # - id: update_pre_commit_config
       - id: validate_frappe_project
