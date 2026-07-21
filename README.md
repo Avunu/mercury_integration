@@ -71,13 +71,13 @@ consolidated payroll Journal Entry.
 
 **Stage 2 — AR pilot**: repoint one or two Subscription Plans:
 ```bash
-bench --site erp.avunu.net execute mercury_integration.migrate.repoint_subscription_plans \
+bench execute mercury_integration.migrate.repoint_subscription_plans \
   --kwargs '{"from_gateway_account": "<GC PGA>", "to_gateway_account": "<Mercury PGA>", "dry_run": false}'
 ```
 Observe a full cycle: Payment Request → pay page → Paid → Payment Entry
 (clearing) → funding Bank Transaction → funding Journal Entry.
 
-**Stage 3 — AR cutover** (data-only; no avunu/automated_subscriptions code
+**Stage 3 — AR cutover** (data-only; no automated_subscriptions code
 changes): notify customers → flip the default gateway account
 (`mercury_integration.migrate.set_default_gateway_account`) → repoint the
 remaining Subscription Plans → keep GoCardless webhooks live ≥60 days for
