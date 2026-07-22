@@ -90,6 +90,10 @@ in-flight charges/chargebacks, then disable the GC endpoint.
    longer covers the swapped accounts).
 4. Backfill from T; audit the seam:
    `mercury_integration.migrate.find_duplicate_bank_transactions --kwargs '{"around": "<T>"}'`.
+5. Merge the duplicate Bank Transactions from the overlap window (dry-run
+   first — writes a CSV report to private files; reconciled Plaid docs survive
+   and adopt the Mercury identity, check numbers are backported from the API):
+   `mercury_integration.migrate.merge_plaid_mercury_duplicates --kwargs '{"dry_run": false}'`.
 
 ## Known constraints (accepted at design time, 2026-07-18)
 

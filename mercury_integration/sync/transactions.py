@@ -60,7 +60,8 @@ def _build_bank_transaction(txn: MercuryTransaction, bank_account: str) -> frapp
 		withdrawal=withdrawal,
 		currency="USD",
 		transaction_id=txn.id,
-		reference_number=txn.id,
+		# Mercury zero-pads check numbers ("006520"); store them bare like the printed check
+		reference_number=(txn.check_number or "").strip().lstrip("0") or None,
 		transaction_type=(txn.kind or "")[:50],
 		description=_description(txn),
 		bank_party_name=txn.counterparty_name,
