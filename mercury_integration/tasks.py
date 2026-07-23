@@ -5,11 +5,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import frappe
 
+if TYPE_CHECKING:
+	from mercury_integration.mercury_integration.doctype.mercury_settings.mercury_settings import (
+		MercurySettings,
+	)
 
-def _settings():
-	return frappe.get_cached_doc("Mercury Settings")
+
+def _settings() -> MercurySettings:
+	return cast("MercurySettings", frappe.get_cached_doc("Mercury Settings"))
 
 
 def sync_all_accounts() -> None:

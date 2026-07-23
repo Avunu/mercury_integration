@@ -10,6 +10,9 @@ app_license = "mit"
 
 required_apps = ["frappe", "erpnext", "payments", "hrms"]
 
+# regenerate doctype controller type annotations on migrate (strong typing)
+export_python_type_annotations = True
+
 doc_events = {
 	"Account": {
 		"after_insert": "mercury_integration.sync.categories.account_after_insert",

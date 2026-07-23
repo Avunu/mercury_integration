@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import frappe
 from frappe import _
 
@@ -14,15 +16,19 @@ from mercury_integration.sync.client_factory import get_settings
 
 @frappe.whitelist()
 def pay_payment_entry_via_mercury(payment_entry: str) -> dict:
-	frappe.only_for(("System Manager", "Accounts Manager"))
-	doc = frappe.db.get_value(
-		"Payment Entry",
-		payment_entry,
-		["docstatus", "payment_type", "party_type", "clearance_date", "bank_account"],
-		as_dict=True,
+	frappe.only_for(cast("tuple[str]", ("System Manager", "Accounts Manager")))
+	doc = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			"Payment Entry",
+			payment_entry,
+			["docstatus", "payment_type", "party_type", "clearance_date", "bank_account"],
+			as_dict=True,
+		),
 	)
 	if not doc or doc.docstatus != 1:
 		frappe.throw(_("Payment Entry must be submitted"))
+	assert doc is not None
 	if doc.payment_type != "Pay" or doc.party_type != "Supplier":
 		frappe.throw(_("Only supplier payments (type Pay) can be sent via Mercury"))
 	if doc.clearance_date:

@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import frappe
 
 
 def get_alert_recipients() -> list[str]:
-	raw = frappe.db.get_single_value("Mercury Settings", "alert_recipients") or ""
+	raw = cast("str | None", frappe.db.get_single_value("Mercury Settings", "alert_recipients")) or ""
 	return [address.strip() for address in raw.replace("\n", ",").split(",") if address.strip()]
 
 

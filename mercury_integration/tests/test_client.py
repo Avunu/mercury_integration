@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
+from typing import cast
 
 import pytest
 import responses
@@ -132,7 +133,7 @@ class TestRetryMatrix:
 				)
 			assert len(rsps.calls) == 1
 			# replayed transaction is recoverable from the error body
-			assert excinfo.value.parsed["id"] == _transaction_payload()["id"]
+			assert cast("dict", excinfo.value.parsed)["id"] == _transaction_payload()["id"]
 
 	def test_connection_error_exhausts(self, client):
 		import requests
@@ -171,7 +172,7 @@ class TestPagination:
 					limit=3,
 				)
 			)
-		assert [t.id for t in items] == [p["id"] for p in page1] + ["99999999-9999-9999-9999-999999999999"]
+		assert [t.id for t in items] == [p["id"] for p in page1] + ["99999999-9999-9999-9999-999999999999"]  # type: ignore[reportPossiblyUnbound]
 
 	def test_short_page_stops_without_second_request(self, client):
 		with responses.RequestsMock() as rsps:
@@ -185,10 +186,10 @@ class TestModels:
 		with responses.RequestsMock() as rsps:
 			rsps.get(BASE + "transaction/x", json=_transaction_payload())
 			txn = client.get_transaction("x")
-		assert txn.account_id == "22222222-2222-2222-2222-222222222222"
-		assert txn.amount == Decimal("-125.5")
-		assert txn.posted_at is not None and txn.posted_at.year == 2026
-		assert txn.is_posted and not txn.is_pending and not txn.is_dead
+		assert txn.account_id == "22222222-2222-2222-2222-222222222222"  # type: ignore[reportPossiblyUnbound]
+		assert txn.amount == Decimal("-125.5")  # type: ignore[reportPossiblyUnbound]
+		assert txn.posted_at is not None and txn.posted_at.year == 2026  # type: ignore[reportPossiblyUnbound]
+		assert txn.is_posted and not txn.is_pending and not txn.is_dead  # type: ignore[reportPossiblyUnbound]
 
 	def test_unknown_enum_and_extra_fields_tolerated(self, client):
 		payload = _transaction_payload(
@@ -199,8 +200,8 @@ class TestModels:
 		with responses.RequestsMock() as rsps:
 			rsps.get(BASE + "transaction/x", json=payload)
 			txn = client.get_transaction("x")
-		assert txn.status == "quantumSettled"
-		assert not txn.is_posted and not txn.is_dead  # unknown → conservative fall-through
+		assert txn.status == "quantumSettled"  # type: ignore[reportPossiblyUnbound]
+		assert not txn.is_posted and not txn.is_dead  # type: ignore[reportPossiblyUnbound]  # unknown → conservative fall-through
 
 	def test_invoice_pay_page_url(self):
 		from mercury_integration.client.models import ArInvoice
@@ -282,8 +283,8 @@ class TestMoneyMovementBodies:
 				},
 			)
 			approval = client.request_send_money("acc", recipient_id="r", amount=10, idempotency_key="k1")
-		assert approval.approval_id == "req-1"
-		assert approval.status == "pendingApproval"
+		assert approval.approval_id == "req-1"  # type: ignore[reportPossiblyUnbound]
+		assert approval.status == "pendingApproval"  # type: ignore[reportPossiblyUnbound]
 
 
 class TestRawResponses:
@@ -301,5 +302,5 @@ class TestRawResponses:
 			)
 			with pytest.raises(MercuryNotFoundError) as excinfo:
 				client.get_transaction("x")
-		assert excinfo.value.parsed == {"errors": {"message": "nope"}}
-		assert json.loads(excinfo.value.body)["errors"]["message"] == "nope"
+		assert excinfo.value.parsed == {"errors": {"message": "nope"}}  # type: ignore[reportPossiblyUnbound]
+		assert json.loads(excinfo.value.body)["errors"]["message"] == "nope"  # type: ignore[reportPossiblyUnbound]

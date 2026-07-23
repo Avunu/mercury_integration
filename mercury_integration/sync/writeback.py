@@ -13,10 +13,17 @@ resulting Mercury ``transaction.updated`` event converges in one round trip.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import frappe
 from frappe.integrations.utils import create_request_log
 
 from mercury_integration.sync.client_factory import get_client, get_settings
+
+if TYPE_CHECKING:
+	from collections.abc import Callable
+
+	from erpnext.accounts.doctype.bank_transaction.bank_transaction import BankTransaction
 
 
 def _allocation_signature(doc) -> list[tuple]:
@@ -55,8 +62,10 @@ def _dominant_mapped_account(vouchers: list[tuple[str, str]]) -> frappe._dict | 
 	mapping (receivables, bank, cash, ...) are excluded by construction."""
 	totals: dict[str, float] = {}
 	for voucher_type, voucher_no in vouchers:
-		rows = frappe.db.sql(
-			"""
+		rows = cast(
+			"list[frappe._dict]",
+			frappe.db.sql(
+				"""
 			select ge.account, sum(abs(ge.debit - ge.credit)) as total
 			from `tabGL Entry` ge
 			join `tabAccount` acc on acc.name = ge.account
@@ -65,16 +74,21 @@ def _dominant_mapped_account(vouchers: list[tuple[str, str]]) -> frappe._dict | 
 				and ifnull(acc.mercury_category_id, '') != ''
 			group by ge.account
 			""",
-			(voucher_type, voucher_no),
-			as_dict=True,
+				(voucher_type, voucher_no),
+				as_dict=True,
+			),
 		)
 		for row in rows:
-			totals[row.account] = totals.get(row.account, 0.0) + float(row.total or 0)
+			account = str(row.account)
+			totals[account] = totals.get(account, 0.0) + float(row.total or 0)
 
 	if not totals:
 		return None
-	account = max(totals, key=totals.get)
-	return frappe.db.get_value("Account", account, ["name", "mercury_category_id"], as_dict=True)
+	account = max(totals, key=cast("Callable[[str], float]", totals.get))
+	return cast(
+		"frappe._dict | None",
+		frappe.db.get_value("Account", account, ["name", "mercury_category_id"], as_dict=True),
+	)
 
 
 def push_writeback(bank_transaction: str) -> None:
@@ -83,7 +97,7 @@ def push_writeback(bank_transaction: str) -> None:
 	if not (settings.enabled and settings.writeback_enabled):
 		return
 
-	doc = frappe.get_doc("Bank Transaction", bank_transaction)
+	doc = cast("BankTransaction", frappe.get_doc("Bank Transaction", bank_transaction))
 	if doc.docstatus != 1 or not doc.transaction_id:
 		return
 

@@ -16,7 +16,7 @@ out-of-order or duplicate processing converges — no version guard needed.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import frappe
 from frappe import _
@@ -27,6 +27,12 @@ from frappe.utils.synchronization import filelock
 
 from mercury_integration.sync.client_factory import get_client, get_settings
 from mercury_integration.utils.alerts import notify_failure
+
+if TYPE_CHECKING:
+	from datetime import datetime
+
+	from frappe.integrations.doctype.integration_request.integration_request import IntegrationRequest
+	from frappe.utils.redis_wrapper import RedisWrapper
 
 SERVICE_NAME = "Mercury"
 WEBHOOK_METHOD_PATH = "/api/method/mercury_integration.webhooks.webhook"
@@ -106,7 +112,7 @@ def process_event(integration_request: str, force: bool = False) -> None:
 	if frappe.session.user == "Guest":
 		# jobs enqueued from the guest webhook request inherit the Guest user
 		frappe.set_user("Administrator")
-	request_doc = frappe.get_doc("Integration Request", integration_request)
+	request_doc = cast("IntegrationRequest", frappe.get_doc("Integration Request", integration_request))
 	if request_doc.status not in ("Queued", "Failed") and not force:
 		return
 
@@ -141,7 +147,7 @@ def process_event(integration_request: str, force: bool = False) -> None:
 @frappe.whitelist()
 def retry_event(integration_request: str) -> None:
 	"""Re-run a Failed Mercury event from its stored payload."""
-	frappe.only_for(("System Manager", "Accounts Manager"))
+	frappe.only_for(cast("tuple[str]", ("System Manager", "Accounts Manager")))
 	process_event(integration_request, force=True)
 
 
@@ -210,7 +216,7 @@ def register_webhook_endpoint() -> str:
 		WEBHOOK_SECRET_CACHE_KEY,
 	)
 
-	frappe.cache().delete_value(WEBHOOK_SECRET_CACHE_KEY)
+	cast("RedisWrapper", frappe.cache)().delete_value(WEBHOOK_SECRET_CACHE_KEY)
 
 	try:
 		client.verify_webhook(webhook.id)
@@ -267,18 +273,24 @@ def run_replay(hours: int = 24) -> None:
 	"""Replay recent events through the live handlers (GoCardless fetch_history archetype)."""
 	settings = get_settings()
 	client = get_client(settings=settings, require_enabled=True)
-	cutoff = get_datetime(add_to_date(now_datetime(), hours=-abs(hours)))
+	cutoff = cast("datetime", get_datetime(add_to_date(now_datetime(), hours=-abs(hours))))
 
 	processed = 0
 	for event in client.list_events(order="desc"):
-		if event.occurred_at and get_datetime(event.occurred_at).replace(tzinfo=None) < cutoff:
+		if (
+			event.occurred_at
+			and cast("datetime", get_datetime(event.occurred_at)).replace(tzinfo=None) < cutoff
+		):
 			break
 		payload = _model_payload(event)
 		name = ingest_event(payload, source="Replay")
 		if not name:
-			existing = frappe.db.get_value(
-				"Integration Request",
-				{"integration_request_service": SERVICE_NAME, "request_id": event.id},
+			existing = cast(
+				"str | None",
+				frappe.db.get_value(
+					"Integration Request",
+					{"integration_request_service": SERVICE_NAME, "request_id": event.id},
+				),
 			)
 			if existing:
 				process_event(existing, force=True)

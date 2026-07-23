@@ -19,9 +19,10 @@ GoCardless fork's ``settle_gocardless_payment`` / ``create_payout_journal``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import frappe
+import frappe.utils
 from frappe import _
 from frappe.utils import add_days, flt, getdate, nowdate, today
 
@@ -30,7 +31,20 @@ from mercury_integration.sync.client_factory import get_client, get_settings
 from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
+	from datetime import date
+
+	from erpnext.accounts.doctype.payment_entry.payment_entry import PaymentEntry
+	from erpnext.accounts.doctype.payment_request.payment_request import PaymentRequest
+
 	from mercury_integration.client.models import ArInvoice
+
+	class MercuryPaymentRequest(PaymentRequest):
+		"""PaymentRequest + Mercury AR custom fields (custom/payment_request.json)."""
+
+		mercury_invoice_id: str | None
+		mercury_reminder_count: int | None
+		mercury_last_reminder_on: str | None
+
 
 OPEN_PR_STATUSES = ("Requested", "Initiated")
 
@@ -45,7 +59,7 @@ def _destination_account_id(settings) -> str:
 				"Mercury Settings: the AR destination Bank Account has no Mercury Account ID; run Sync Accounts first"
 			)
 		)
-	return destination
+	return cast("str", destination)
 
 
 def _invoice_number(payment_request) -> str:
@@ -83,7 +97,10 @@ def ensure_invoice_for_payment_request(payment_request) -> str:
 		frappe.throw(_("Mercury AR invoicing requires a Customer party on the Payment Request"))
 	customer_id = ensure_ar_customer(payment_request.party, payment_request.email_to)
 
-	due_date = max(getdate(payment_request.transaction_date or today()), getdate(today()))
+	due_date = max(
+		cast("date", getdate(payment_request.transaction_date or today())),
+		cast("date", getdate(today())),
+	)
 	subject = payment_request.subject or f"Payment Request {payment_request.name}"
 	invoice = get_client(settings=settings, require_enabled=True).create_ar_invoice(
 		customer_id=customer_id,
@@ -114,8 +131,9 @@ def ensure_invoice_for_payment_request(payment_request) -> str:
 
 
 def get_pay_page_url(payment_request_name: str) -> str | None:
-	url, invoice_id = frappe.db.get_value(
-		"Payment Request", payment_request_name, ["payment_url", "mercury_invoice_id"]
+	url, invoice_id = cast(
+		"tuple[str | None, str | None] | None",
+		frappe.db.get_value("Payment Request", payment_request_name, ["payment_url", "mercury_invoice_id"]),
 	) or (None, None)
 	if url:
 		return url
@@ -146,7 +164,7 @@ def _comment(payment_request: str, text: str) -> None:
 
 
 def _handle_upstream_cancel(payment_request: str) -> None:
-	doc = frappe.get_doc("Payment Request", payment_request)
+	doc = cast("MercuryPaymentRequest", frappe.get_doc("Payment Request", payment_request))
 	_comment(payment_request, "Mercury invoice was cancelled in the Mercury dashboard")
 	if not frappe.db.exists("Payment Entry", {"reference_no": doc.mercury_invoice_id, "docstatus": 1}):
 		doc.set_as_cancelled()
@@ -169,11 +187,11 @@ def settle_paid_invoice(payment_request: str, invoice: ArInvoice) -> None:
 	)
 	from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
 
-	doc = frappe.get_doc("Payment Request", payment_request)
+	doc = cast("MercuryPaymentRequest", frappe.get_doc("Payment Request", payment_request))
 	if frappe.db.exists("Payment Entry", {"reference_no": doc.mercury_invoice_id, "docstatus": 1}):
 		return
 
-	amount = min(flt(invoice.amount), flt(doc.outstanding_amount))
+	amount = min(flt(cast("float", invoice.amount)), flt(doc.outstanding_amount))
 	if amount <= 0:
 		return
 
@@ -182,12 +200,15 @@ def settle_paid_invoice(payment_request: str, invoice: ArInvoice) -> None:
 		frappe.local.session.user = "Administrator"
 		frappe.flags.ignore_account_permission = True
 
-		payment_entry = get_payment_entry(
-			doc.reference_doctype,
-			doc.reference_name,
-			party_amount=amount,
-			bank_account=doc.payment_account,
-			created_from_payment_request=True,
+		payment_entry = cast(
+			"PaymentEntry",
+			get_payment_entry(
+				doc.reference_doctype,
+				doc.reference_name,
+				party_amount=amount,
+				bank_account=doc.payment_account,
+				created_from_payment_request=True,
+			),
 		)
 		payment_entry.set_missing_ref_details(force=True)
 		payment_entry.update(
@@ -229,12 +250,12 @@ def settle_paid_invoice(payment_request: str, invoice: ArInvoice) -> None:
 
 def _apply_invoice_status(row: frappe._dict, invoice: ArInvoice) -> None:
 	if invoice.status == "Processing" and row.status != "Initiated":
-		frappe.db.set_value("Payment Request", row.name, "status", "Initiated", update_modified=False)
-		_comment(row.name, "Mercury invoice payment is processing")
+		frappe.db.set_value("Payment Request", str(row.name), "status", "Initiated", update_modified=False)
+		_comment(str(row.name), "Mercury invoice payment is processing")
 	elif invoice.status == "Paid":
-		settle_paid_invoice(row.name, invoice)
+		settle_paid_invoice(str(row.name), invoice)
 	elif invoice.status == "Cancelled":
-		_handle_upstream_cancel(row.name)
+		_handle_upstream_cancel(str(row.name))
 
 
 def poll_open_invoices() -> None:
@@ -246,7 +267,7 @@ def poll_open_invoices() -> None:
 
 	for row in _open_mercury_payment_requests():
 		try:
-			invoice = client.get_ar_invoice(row.mercury_invoice_id)
+			invoice = client.get_ar_invoice(str(row.mercury_invoice_id))
 		except Exception:
 			frappe.log_error(title=f"Mercury invoice poll failed for {row.name}")
 			continue
@@ -300,7 +321,7 @@ def retry_failed_invoice_creation() -> None:
 		pluck="name",
 	)
 	for name in pending:
-		doc = frappe.get_doc("Payment Request", name)
+		doc = cast("MercuryPaymentRequest", frappe.get_doc("Payment Request", name))
 		try:
 			ensure_invoice_for_payment_request(doc)
 			if settings.ar_email_sender != "Mercury":
@@ -319,7 +340,7 @@ def retry_failed_invoice_creation() -> None:
 @frappe.whitelist()
 def recreate_mercury_invoice(payment_request: str) -> str:
 	"""Desk button: force invoice creation for a submitted Mercury PR."""
-	frappe.only_for(("System Manager", "Accounts Manager"))
+	frappe.only_for(cast("tuple[str]", ("System Manager", "Accounts Manager")))
 	doc = frappe.get_doc("Payment Request", payment_request)
 	invoice_id = ensure_invoice_for_payment_request(doc)
 	return invoice_id
@@ -352,15 +373,15 @@ def send_overdue_reminders() -> None:
 		count = row.mercury_reminder_count or 0
 		if count >= max_reminders:
 			continue
-		if row.mercury_last_reminder_on and getdate(row.mercury_last_reminder_on) > getdate(
-			add_days(today(), -interval)
+		if row.mercury_last_reminder_on and cast("date", getdate(row.mercury_last_reminder_on)) > cast(
+			"date", getdate(add_days(today(), -interval))
 		):
 			continue
 		try:
-			invoice = client.get_ar_invoice(row.mercury_invoice_id)
+			invoice = client.get_ar_invoice(str(row.mercury_invoice_id))
 			if invoice.status not in INVOICE_OPEN_STATUSES:
 				continue  # just paid/cancelled; the poll will transition it
-			doc = frappe.get_doc("Payment Request", row.name)
+			doc = cast("MercuryPaymentRequest", frappe.get_doc("Payment Request", str(row.name)))
 			doc.send_email()
 			doc.db_set(
 				{"mercury_reminder_count": count + 1, "mercury_last_reminder_on": today()},

@@ -17,6 +17,7 @@ Matching is exact: ``Bank Transaction.transaction_id`` equals the payout's
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import frappe
 from frappe.utils import flt
@@ -47,15 +48,18 @@ def _reconcile(bank_transaction: str, payment_doctype: str, payment_name: str, a
 def _payroll_bank_journal(payroll_entry: str, funding_bank_account: str | None) -> str | None:
 	"""The consolidated bank-payment JE for a Payroll Entry (credit to the funding bank GL)."""
 	bank_gl = funding_bank_account and frappe.db.get_value("Bank Account", funding_bank_account, "account")
-	rows = frappe.db.sql(
-		"""
-		select distinct jea.parent
-		from `tabJournal Entry Account` jea
-		join `tabJournal Entry` je on je.name = jea.parent and je.docstatus = 1
-		where jea.reference_type = 'Payroll Entry' and jea.reference_name = %s
-		""",
-		(payroll_entry,),
-		pluck=True,
+	rows = cast(
+		"list",
+		frappe.db.sql(
+			"""
+			select distinct jea.parent
+			from `tabJournal Entry Account` jea
+			join `tabJournal Entry` je on je.name = jea.parent and je.docstatus = 1
+			where jea.reference_type = 'Payroll Entry' and jea.reference_name = %s
+			""",
+			(payroll_entry,),
+			pluck=True,
+		),
 	)
 	for journal_entry in rows:
 		if not bank_gl:
@@ -70,8 +74,11 @@ def _payroll_bank_journal(payroll_entry: str, funding_bank_account: str | None) 
 
 
 def _reconcile_salary_slip(bank_transaction, slip_name: str, settings) -> bool:
-	slip = frappe.db.get_value(
-		"Salary Slip", slip_name, ["payroll_entry", "mercury_payment_status"], as_dict=True
+	slip = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			"Salary Slip", slip_name, ["payroll_entry", "mercury_payment_status"], as_dict=True
+		),
 	)
 	if not slip or not slip.payroll_entry:
 		return False
@@ -102,7 +109,9 @@ def reconcile_payout_bank_transaction(doc, method=None) -> None:
 	if flt(doc.withdrawal) <= 0 or not doc.transaction_id:
 		return
 
-	slip = frappe.db.get_value("Salary Slip", {"mercury_transaction_id": doc.transaction_id})
+	slip = cast(
+		"str | None", frappe.db.get_value("Salary Slip", {"mercury_transaction_id": doc.transaction_id})
+	)
 	if slip:
 		try:
 			_reconcile_salary_slip(doc, slip, settings)
@@ -114,7 +123,9 @@ def reconcile_payout_bank_transaction(doc, method=None) -> None:
 			)
 		return
 
-	payment_entry = frappe.db.get_value("Payment Entry", {"mercury_transaction_id": doc.transaction_id})
+	payment_entry = cast(
+		"str | None", frappe.db.get_value("Payment Entry", {"mercury_transaction_id": doc.transaction_id})
+	)
 	if payment_entry:
 		try:
 			_reconcile_payment_entry(doc, payment_entry)

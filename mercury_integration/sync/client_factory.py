@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import frappe
 from frappe import _
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def get_settings() -> MercurySettings:
-	return frappe.get_cached_doc("Mercury Settings")
+	return cast("MercurySettings", frappe.get_cached_doc("Mercury Settings"))
 
 
 def get_client(*, settings: MercurySettings | None = None, require_enabled: bool = False) -> MercuryClient:

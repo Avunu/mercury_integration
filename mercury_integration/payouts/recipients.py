@@ -12,10 +12,17 @@ details are passed straight to the Mercury API and not persisted.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import frappe
 from frappe import _
 
 from mercury_integration.sync.client_factory import get_client
+
+if TYPE_CHECKING:
+	from mercury_integration.mercury_integration.doctype.mercury_settings.mercury_settings import (
+		MercurySettings,
+	)
 
 PARTY_TYPES = ("Employee", "Supplier")
 
@@ -29,19 +36,25 @@ def _validate_party_type(party_type: str) -> None:
 
 def _party_email(party_type: str, party: str) -> str | None:
 	if party_type == "Employee":
-		row = frappe.db.get_value("Employee", party, EMPLOYEE_EMAIL_FIELDS, as_dict=True)
+		row = cast(
+			"frappe._dict | None",
+			frappe.db.get_value("Employee", party, cast("list[str]", EMPLOYEE_EMAIL_FIELDS), as_dict=True),
+		)
 		return next((row[field] for field in EMPLOYEE_EMAIL_FIELDS if row and row.get(field)), None)
-	return frappe.db.get_value("Supplier", party, "email_id")
+	return cast("str | None", frappe.db.get_value("Supplier", party, "email_id"))
 
 
 def _party_display_name(party_type: str, party: str) -> str:
 	field = "employee_name" if party_type == "Employee" else "supplier_name"
-	return frappe.db.get_value(party_type, party, field) or party
+	return cast("str | None", frappe.db.get_value(party_type, party, field)) or party
 
 
 def get_recipient_id(party_type: str, party: str) -> str | None:
 	_validate_party_type(party_type)
-	value = frappe.db.get_value(party_type, party, ["mercury_recipient_id", "mercury_recipient_status"])
+	value = cast(
+		"list | None",
+		frappe.db.get_value(party_type, party, ["mercury_recipient_id", "mercury_recipient_status"]),
+	)
 	if not value:
 		return None
 	recipient_id, status = value
@@ -49,20 +62,21 @@ def get_recipient_id(party_type: str, party: str) -> str | None:
 
 
 def _set_recipient_fields(party_type: str, party: str, values: dict) -> None:
-	frappe.db.set_value(party_type, party, values, update_modified=False)
+	frappe.db.set_value(party_type, party, cast("str", values), update_modified=False)
 
 
 @frappe.whitelist()
 def send_invite(party_type: str, party: str) -> dict:
 	"""Email the payee a Mercury onboarding link to enter their bank details."""
-	frappe.only_for(("System Manager", "HR Manager", "Accounts Manager"))
+	frappe.only_for(cast("tuple[str]", ("System Manager", "HR Manager", "Accounts Manager")))
 	_validate_party_type(party_type)
 
 	email = _party_email(party_type, party)
 	if not email:
 		frappe.throw(_("{0} {1} has no email address for the Mercury invite").format(party_type, party))
+	assert email is not None
 
-	existing_recipient = frappe.db.get_value(party_type, party, "mercury_recipient_id")
+	existing_recipient = cast("str | None", frappe.db.get_value(party_type, party, "mercury_recipient_id"))
 	invite = get_client(require_enabled=True).create_recipient_invite(
 		contact_email=email,
 		name=_party_display_name(party_type, party),
@@ -81,17 +95,21 @@ def send_invite(party_type: str, party: str) -> dict:
 @frappe.whitelist()
 def refresh_recipient(party_type: str, party: str) -> dict:
 	"""Pull invite/recipient state from Mercury; returns display info (not stored)."""
-	frappe.only_for(("System Manager", "HR Manager", "Accounts Manager"))
+	frappe.only_for(cast("tuple[str]", ("System Manager", "HR Manager", "Accounts Manager")))
 	_validate_party_type(party_type)
 
-	row = frappe.db.get_value(
-		party_type,
-		party,
-		["mercury_recipient_id", "mercury_invite_id", "mercury_recipient_status"],
-		as_dict=True,
+	row = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			party_type,
+			party,
+			["mercury_recipient_id", "mercury_invite_id", "mercury_recipient_status"],
+			as_dict=True,
+		),
 	)
 	if not row:
 		frappe.throw(_("{0} {1} not found").format(party_type, party))
+	assert row is not None
 
 	client = get_client(require_enabled=True)
 	recipient_id = row.mercury_recipient_id
@@ -131,7 +149,7 @@ def create_recipient_directly(
 	electronic_account_type: str = "personalChecking",
 ) -> dict:
 	"""Transient direct-create: bank details go straight to Mercury, never stored."""
-	frappe.only_for(("System Manager", "HR Manager", "Accounts Manager"))
+	frappe.only_for(cast("tuple[str]", ("System Manager", "HR Manager", "Accounts Manager")))
 	_validate_party_type(party_type)
 
 	email = _party_email(party_type, party)
@@ -155,7 +173,7 @@ def create_recipient_directly(
 
 def sync_recipients() -> None:
 	"""daily: resolve completed invites into active recipient ids."""
-	settings = frappe.get_cached_doc("Mercury Settings")
+	settings = cast("MercurySettings", frappe.get_cached_doc("Mercury Settings"))
 	if not (settings.enabled and settings.enable_payouts):
 		return
 	for party_type in PARTY_TYPES:

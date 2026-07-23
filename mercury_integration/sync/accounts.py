@@ -11,7 +11,7 @@ never ``integration_id``, which Plaid's scheduler selects on.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import frappe
 from frappe import _
@@ -32,14 +32,17 @@ def ensure_mercury_bank() -> str:
 
 
 def get_bank_account_name(mercury_account_id: str) -> str | None:
-	return frappe.db.get_value("Bank Account", {"mercury_account_id": mercury_account_id})
+	return cast("str | None", frappe.db.get_value("Bank Account", {"mercury_account_id": mercury_account_id}))
 
 
 def _get_company_bank_gl_account(company: str) -> str:
 	"""The group GL account new Mercury bank GL accounts are created under."""
-	parent = frappe.db.get_value(
-		"Account",
-		{"account_type": "Bank", "is_group": 1, "root_type": "Asset", "company": company},
+	parent = cast(
+		"str | None",
+		frappe.db.get_value(
+			"Account",
+			{"account_type": "Bank", "is_group": 1, "root_type": "Asset", "company": company},
+		),
 	)
 	if not parent:
 		frappe.throw(
@@ -47,15 +50,18 @@ def _get_company_bank_gl_account(company: str) -> str:
 				"Please setup a Bank account group in the Chart of Accounts for company {0} before syncing Mercury accounts"
 			).format(company)
 		)
-	return parent
+	return cast("str", parent)
 
 
 def _ensure_gl_account(account_name: str, company: str) -> str:
 	# only ever reuse Bank-type ledger accounts — a plain name lookup can grab
 	# unrelated P&L accounts (e.g. an Income ledger named like the bank account)
-	existing = frappe.db.get_value(
-		"Account",
-		{"account_name": account_name, "company": company, "account_type": "Bank", "is_group": 0},
+	existing = cast(
+		"str | None",
+		frappe.db.get_value(
+			"Account",
+			{"account_name": account_name, "company": company, "account_type": "Bank", "is_group": 0},
+		),
 	)
 	if existing:
 		return existing
@@ -68,7 +74,7 @@ def _ensure_gl_account(account_name: str, company: str) -> str:
 			"company": company,
 		}
 	).insert(ignore_permissions=True)
-	return gl_account.name
+	return str(gl_account.name)
 
 
 def _create_bank_account(account: MercuryAccount, company: str) -> str:
@@ -90,7 +96,7 @@ def _create_bank_account(account: MercuryAccount, company: str) -> str:
 			"mercury_account_id": account.id,
 		}
 	).insert(ignore_permissions=True)
-	return doc.name
+	return str(doc.name)
 
 
 def _normalize_account_number(value: str | None) -> str:
@@ -153,7 +159,7 @@ def _adopt_bank_account(bank_account: str, account: MercuryAccount) -> None:
 		values["bank_account_no"] = account.account_number
 	if account.routing_number:
 		values["branch_code"] = account.routing_number
-	frappe.db.set_value("Bank Account", bank_account, values)
+	frappe.db.set_value("Bank Account", bank_account, values)  # type: ignore[reportArgumentType]
 
 
 @frappe.whitelist()
@@ -166,7 +172,7 @@ def sync_mercury_accounts() -> dict:
 	docs stale-mapped to an archived account id — and archived accounts are
 	never matched or created, only disabled when they still hold a mapping.
 	"""
-	frappe.only_for(("System Manager", "Accounts Manager"))
+	frappe.only_for(cast("tuple[str]", ("System Manager", "Accounts Manager")))
 	settings = get_settings()
 	client = get_client(settings=settings, require_enabled=True)
 
@@ -191,7 +197,7 @@ def sync_mercury_accounts() -> dict:
 			adopted.append(matched)
 			candidates = [c for c in candidates if c.name != matched]
 		else:
-			created.append(_create_bank_account(account, settings.company))
+			created.append(_create_bank_account(account, str(settings.company)))
 
 	for account in accounts:
 		if account.id in active_ids:

@@ -13,7 +13,7 @@ status flips, late categorization) are handled explicitly.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import frappe
 from frappe.utils import add_days, add_months, getdate, today
@@ -23,6 +23,8 @@ from mercury_integration.sync.client_factory import get_client, get_settings
 from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
+	from erpnext.accounts.doctype.bank_transaction.bank_transaction import BankTransaction
+
 	from mercury_integration.client.models import MercuryTransaction
 
 SYNC_OVERLAP_DAYS = 3
@@ -30,7 +32,10 @@ DEFAULT_BACKFILL_MONTHS = 12
 
 
 def _bank_account_for(txn: MercuryTransaction) -> str | None:
-	return frappe.db.get_value("Bank Account", {"mercury_account_id": txn.account_id, "disabled": 0})
+	return cast(
+		"str | None",
+		frappe.db.get_value("Bank Account", {"mercury_account_id": txn.account_id, "disabled": 0}),
+	)
 
 
 def _amounts(txn: MercuryTransaction) -> tuple[float, float]:
@@ -69,22 +74,22 @@ def _build_bank_transaction(txn: MercuryTransaction, bank_account: str) -> frapp
 
 
 def _insert_submitted(txn: MercuryTransaction, bank_account: str) -> str:
-	doc = frappe.get_doc(_build_bank_transaction(txn, bank_account))
+	doc = cast("BankTransaction", frappe.get_doc(_build_bank_transaction(txn, bank_account)))
 	doc.flags.ignore_permissions = True
 	doc.insert()
 	doc.submit()
-	return doc.name
+	return str(doc.name)
 
 
 def _insert_draft(txn: MercuryTransaction, bank_account: str) -> str:
-	doc = frappe.get_doc(_build_bank_transaction(txn, bank_account))
+	doc = cast("BankTransaction", frappe.get_doc(_build_bank_transaction(txn, bank_account)))
 	doc.flags.ignore_permissions = True
 	doc.insert()
-	return doc.name
+	return str(doc.name)
 
 
 def _update_draft(name: str, txn: MercuryTransaction, bank_account: str) -> None:
-	doc = frappe.get_doc("Bank Transaction", name)
+	doc = cast("BankTransaction", frappe.get_doc("Bank Transaction", name))
 	doc.update(_build_bank_transaction(txn, bank_account))
 	doc.flags.ignore_permissions = True
 	doc.save()
@@ -95,7 +100,7 @@ def _is_reconciled(name: str) -> bool:
 
 
 def _cancel(name: str) -> None:
-	doc = frappe.get_doc("Bank Transaction", name)
+	doc = cast("BankTransaction", frappe.get_doc("Bank Transaction", name))
 	doc.flags.ignore_permissions = True
 	doc.cancel()
 
@@ -112,7 +117,7 @@ def _alert_manual_intervention(name: str, txn: MercuryTransaction, reason: str) 
 
 def _handle_submitted_mutation(existing: frappe._dict, txn: MercuryTransaction, bank_account: str) -> str:
 	"""Reconcile an already-submitted Bank Transaction with fresh Mercury state."""
-	name = existing.name
+	name = str(existing.name)
 	deposit, withdrawal = _amounts(txn)
 
 	if txn.is_dead:
@@ -145,11 +150,14 @@ def upsert_transaction(txn: MercuryTransaction) -> str | None:
 
 	settings = get_settings()
 	with filelock(f"mercury_txn_{txn.id}", timeout=30):
-		existing = frappe.db.get_value(
-			"Bank Transaction",
-			{"transaction_id": txn.id, "docstatus": ("<", 2)},
-			["name", "docstatus", "date", "deposit", "withdrawal"],
-			as_dict=True,
+		existing = cast(
+			"frappe._dict | None",
+			frappe.db.get_value(
+				"Bank Transaction",
+				{"transaction_id": txn.id, "docstatus": ("<", 2)},
+				["name", "docstatus", "date", "deposit", "withdrawal"],
+				as_dict=True,
+			),
 		)
 
 		name: str | None = None
@@ -162,16 +170,16 @@ def upsert_transaction(txn: MercuryTransaction) -> str | None:
 			# dead/unknown statuses: never create
 		elif existing.docstatus == 0:
 			if txn.is_dead:
-				frappe.delete_doc("Bank Transaction", existing.name, ignore_permissions=True, force=True)
+				frappe.delete_doc("Bank Transaction", str(existing.name), ignore_permissions=True, force=True)
 			elif txn.is_posted:
-				_update_draft(existing.name, txn, bank_account)
-				doc = frappe.get_doc("Bank Transaction", existing.name)
+				_update_draft(str(existing.name), txn, bank_account)
+				doc = cast("BankTransaction", frappe.get_doc("Bank Transaction", str(existing.name)))
 				doc.flags.ignore_permissions = True
 				doc.submit()
-				name = existing.name
+				name = str(existing.name)
 			else:
-				_update_draft(existing.name, txn, bank_account)
-				name = existing.name
+				_update_draft(str(existing.name), txn, bank_account)
+				name = str(existing.name)
 		else:
 			name = _handle_submitted_mutation(existing, txn, bank_account)
 
@@ -188,11 +196,14 @@ def upsert_transaction(txn: MercuryTransaction) -> str | None:
 
 def sync_account_transactions(bank_account: str, from_date: str | None = None) -> int:
 	"""Windowed sync for one Bank Account (background job)."""
-	account = frappe.db.get_value(
-		"Bank Account",
-		bank_account,
-		["mercury_account_id", "last_integration_date"],
-		as_dict=True,
+	account = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			"Bank Account",
+			bank_account,
+			["mercury_account_id", "last_integration_date"],
+			as_dict=True,
+		),
 	)
 	if not account or not account.mercury_account_id:
 		return 0
@@ -248,6 +259,6 @@ def sync_all_accounts() -> None:
 
 
 def enqueue_backfill(days: int = 90) -> None:
-	from_date = add_days(today(), -abs(days))
+	from_date = cast("str", add_days(today(), -abs(days)))
 	for bank_account in _mercury_bank_accounts():
 		_enqueue_account_sync(bank_account, from_date=from_date)

@@ -19,9 +19,13 @@ from __future__ import annotations
 import csv
 import json
 import re
+from typing import TYPE_CHECKING, cast
 
 import frappe
 from frappe.utils import add_days, flt, getdate, now_datetime
+
+if TYPE_CHECKING:
+	import datetime
 
 
 def repoint_subscription_plans(from_gateway_account: str, to_gateway_account: str, dry_run: bool = True):
@@ -114,7 +118,12 @@ def _mercury_party(row: frappe._dict) -> str:
 
 
 def _amount_key(row: frappe._dict) -> tuple:
-	return (row.bank_account, str(row.date), flt(row.deposit, 2), flt(row.withdrawal, 2))
+	return (
+		row.bank_account,
+		str(row.date),
+		flt(cast("float", row.deposit), 2),
+		flt(cast("float", row.withdrawal), 2),
+	)
 
 
 def _has_payments(name: str) -> bool:
@@ -132,7 +141,7 @@ def _voucher_refs(plaid_name: str) -> set[str]:
 	):
 		field = {"Journal Entry": "cheque_no", "Payment Entry": "reference_no"}.get(row.payment_document)
 		if field:
-			value = frappe.db.get_value(row.payment_document, row.payment_entry, field)
+			value = cast("str | None", frappe.db.get_value(row.payment_document, row.payment_entry, field))
 			if value:
 				refs.add(value.strip())
 	return refs
@@ -200,7 +209,9 @@ def _pair_group(plaid: list, mercury: list, checks: dict[str, str]) -> tuple[lis
 	# T5: everything left shares one party on both sides — fungible, pair in stable order
 	parties = {_plaid_party(p.description) for p in plaid} | {_mercury_party(m) for m in mercury}
 	if plaid and mercury and len(parties) == 1:
-		for p, m in zip(sorted(plaid, key=lambda x: x.name), sorted(mercury, key=lambda x: x.name)):
+		for p, m in zip(
+			sorted(plaid, key=lambda x: x.name), sorted(mercury, key=lambda x: x.name), strict=False
+		):
 			take(p, m, "interchangeable")
 
 	if len(plaid) == 1 and len(mercury) == 1:  # 1:1 on the key alone (same day + amount + account)
@@ -211,7 +222,7 @@ def _pair_group(plaid: list, mercury: list, checks: dict[str, str]) -> tuple[lis
 
 def _survivor_reference(p: frappe._dict, m: frappe._dict, checks: dict[str, str]) -> tuple[str | None, str]:
 	"""Best reference_number for a merged transaction, and a note when sources disagree."""
-	api_check = checks.get(m.transaction_id)
+	api_check = checks.get(str(m.transaction_id))
 	plaid_ref = (p.reference_number or "").strip()
 	plaid_check = _canonical_check(plaid_ref)
 	if api_check and plaid_check and api_check != plaid_check:
@@ -233,10 +244,8 @@ def merge_plaid_mercury_duplicates(
 	last Plaid row), pairs rows on exact (account, date, deposit, withdrawal)
 	with tie-breaks (see ``_pair_group``). The reconciled side survives:
 
-	- Plaid doc reconciled → it survives and adopts the Mercury identity
-	  (transaction_id, type, party name, description); payment rows untouched.
-	- Neither reconciled → the Mercury doc survives, inheriting Plaid's check
-	  number / party where Mercury lacks them.
+	- Plaid doc reconciled → it survives and adopts the Mercury identity (txn id, type, party, description); payment rows untouched.
+	- Neither reconciled → the Mercury doc survives, inheriting Plaid's check number / party where Mercury lacks them.
 	- Both reconciled → never auto-merged; reported for manual review.
 
 	Also backports Mercury API checkNumber into reference_number on surviving
@@ -251,33 +260,39 @@ def merge_plaid_mercury_duplicates(
 
 	checks = fetch_mercury_check_numbers(api_start) if fetch_check_numbers else {}
 
-	mercury_rows = frappe.db.sql(
-		f"""select {BT_FIELDS} from `tabBank Transaction`
-		where docstatus = 1 and bank_account in %(accounts)s and transaction_id regexp %(uuid)s""",
-		{"accounts": accounts, "uuid": SQL_UUID},
-		as_dict=True,
+	mercury_rows = cast(
+		"list[frappe._dict]",
+		frappe.db.sql(
+			f"""select {BT_FIELDS} from `tabBank Transaction`
+			where docstatus = 1 and bank_account in %(accounts)s and transaction_id regexp %(uuid)s""",
+			{"accounts": accounts, "uuid": SQL_UUID},
+			as_dict=True,
+		),
 	)
-	plaid_rows = frappe.db.sql(
-		f"""select {BT_FIELDS} from `tabBank Transaction`
-		where docstatus = 1 and bank_account in %(accounts)s and transaction_id is not null
-		and transaction_id != '' and transaction_id not regexp %(uuid)s""",
-		{"accounts": accounts, "uuid": SQL_UUID},
-		as_dict=True,
+	plaid_rows = cast(
+		"list[frappe._dict]",
+		frappe.db.sql(
+			f"""select {BT_FIELDS} from `tabBank Transaction`
+			where docstatus = 1 and bank_account in %(accounts)s and transaction_id is not null
+			and transaction_id != '' and transaction_id not regexp %(uuid)s""",
+			{"accounts": accounts, "uuid": SQL_UUID},
+			as_dict=True,
+		),
 	)
 
 	# per-account overlap window: [first Mercury row, last Plaid row]
 	mercury_min: dict[str, str] = {}
 	plaid_max: dict[str, str] = {}
 	for m in mercury_rows:
-		mercury_min[m.bank_account] = min(str(m.date), mercury_min.get(m.bank_account, "9999"))
+		mercury_min[str(m.bank_account)] = min(str(m.date), mercury_min.get(str(m.bank_account), "9999"))
 	for p in plaid_rows:
-		plaid_max[p.bank_account] = max(str(p.date), plaid_max.get(p.bank_account, "0000"))
+		plaid_max[str(p.bank_account)] = max(str(p.date), plaid_max.get(str(p.bank_account), "0000"))
 
-	plaid_in_window = [p for p in plaid_rows if str(p.date) >= mercury_min.get(p.bank_account, "9999")]
+	plaid_in_window = [p for p in plaid_rows if str(p.date) >= mercury_min.get(str(p.bank_account), "9999")]
 	for p in plaid_in_window:
-		p._reconciled = _has_payments(p.name)
+		p._reconciled = _has_payments(str(p.name))
 	for m in mercury_rows:
-		m._reconciled = _has_payments(m.name)
+		m._reconciled = _has_payments(str(m.name))
 
 	groups: dict[tuple, dict] = {}
 	for p in plaid_in_window:
@@ -305,45 +320,69 @@ def merge_plaid_mercury_duplicates(
 	unmatched_mercury = [
 		m
 		for m in mercury_rows
-		if m.name not in paired_mercury and str(m.date) <= plaid_max.get(m.bank_account, "0000")
+		if m.name not in paired_mercury and str(m.date) <= plaid_max.get(str(m.bank_account), "0000")
 	]
 
-	report_rows, summary = [], frappe._dict(
-		pairs=len(pairs), conflicts=len(conflicts), by_tier={}, backported_check_numbers=0,
-		cleared_redundant_refs=0, unmatched_plaid=len(unmatched_plaid),
-		unmatched_mercury=len(unmatched_mercury), api_check_numbers=len(checks),
+	report_rows, summary = (
+		[],
+		frappe._dict(
+			pairs=len(pairs),
+			conflicts=len(conflicts),
+			by_tier={},
+			backported_check_numbers=0,
+			cleared_redundant_refs=0,
+			unmatched_plaid=len(unmatched_plaid),
+			unmatched_mercury=len(unmatched_mercury),
+			api_check_numbers=len(checks),
+		),
 	)
+	tier_counts = cast("dict[str, int]", summary.by_tier)
 
-	def log(action, p=None, m=None, tier="", note="", new_ref=""):
-		report_rows.append({
-			"action": action, "tier": tier,
-			"bank_account": (p or m).bank_account, "date": str((p or m).date),
-			"deposit": flt((p or m).deposit, 2), "withdrawal": flt((p or m).withdrawal, 2),
-			"plaid_doc": p and p.name or "", "mercury_doc": m and m.name or "",
-			"plaid_txn_id": p and p.transaction_id or "", "mercury_txn_id": m and m.transaction_id or "",
-			"new_reference_number": new_ref or "",
-			"plaid_description": p and (p.description or "") or "",
-			"mercury_description": m and (m.description or "") or "",
-			"note": note,
-		})
+	def log(
+		action: str,
+		p: frappe._dict | None = None,
+		m: frappe._dict | None = None,
+		tier: str = "",
+		note: str = "",
+		new_ref: str | None = "",
+	) -> None:
+		anchor = cast("frappe._dict", p or m)
+		report_rows.append(
+			{
+				"action": action,
+				"tier": tier,
+				"bank_account": anchor.bank_account,
+				"date": str(anchor.date),
+				"deposit": flt(cast("float", anchor.deposit), 2),
+				"withdrawal": flt(cast("float", anchor.withdrawal), 2),
+				"plaid_doc": (p and p.name) or "",
+				"mercury_doc": (m and m.name) or "",
+				"plaid_txn_id": (p and p.transaction_id) or "",
+				"mercury_txn_id": (m and m.transaction_id) or "",
+				"new_reference_number": new_ref or "",
+				"plaid_description": (p and (p.description or "")) or "",
+				"mercury_description": (m and (m.description or "")) or "",
+				"note": note,
+			}
+		)
 
 	# ------- phase A: check-number backport / redundancy cleanup on surviving Mercury docs
 	absorbed = {m.name for p, m, _t in pairs if p._reconciled and not m._reconciled}
 	for m in mercury_rows:
 		if m.name in absorbed:
 			continue
-		api_check = checks.get(m.transaction_id)
+		api_check = checks.get(str(m.transaction_id))
 		if api_check and (m.reference_number or "").strip() != api_check:
-			summary.backported_check_numbers += 1
+			summary.backported_check_numbers = cast("int", summary.backported_check_numbers) + 1
 			log("backport-check-number", m=m, new_ref=api_check)
 			if not dry_run:
-				frappe.db.set_value("Bank Transaction", m.name, "reference_number", api_check)
+				frappe.db.set_value("Bank Transaction", str(m.name), "reference_number", api_check)
 			m.reference_number = api_check
 		elif (m.reference_number or "").strip() == m.transaction_id:
-			summary.cleared_redundant_refs += 1
+			summary.cleared_redundant_refs = cast("int", summary.cleared_redundant_refs) + 1
 			log("clear-redundant-ref", m=m)
 			if not dry_run:
-				frappe.db.set_value("Bank Transaction", m.name, "reference_number", None)
+				frappe.db.set_value("Bank Transaction", str(m.name), "reference_number", None)
 			m.reference_number = None
 
 	# ------- phase B: merges
@@ -354,7 +393,7 @@ def merge_plaid_mercury_duplicates(
 		frappe.delete_doc("Bank Transaction", loser_name, ignore_permissions=True, force=True)
 
 	for p, m, tier in pairs:
-		summary.by_tier[tier] = summary.by_tier.get(tier, 0) + 1
+		tier_counts[tier] = tier_counts.get(tier, 0) + 1
 		new_ref, ref_note = _survivor_reference(p, m, checks)
 		if p._reconciled and not m._reconciled:
 			# reconciled Plaid doc survives, adopts the Mercury identity
@@ -364,7 +403,7 @@ def merge_plaid_mercury_duplicates(
 				frappe.db.set_value(
 					"Bank Transaction",
 					p.name,
-					{
+					{  # type: ignore[reportArgumentType]  # frappe set_value accepts a dict of fields
 						"transaction_id": m.transaction_id,
 						"transaction_type": m.transaction_type,
 						"bank_party_name": m.bank_party_name,
@@ -388,7 +427,7 @@ def merge_plaid_mercury_duplicates(
 			if not dry_run:
 				absorb(p.name)
 				if updates:
-					frappe.db.set_value("Bank Transaction", m.name, updates)
+					frappe.db.set_value("Bank Transaction", m.name, updates)  # type: ignore[reportArgumentType]  # frappe set_value accepts a dict of fields
 				frappe.get_doc("Bank Transaction", m.name).add_comment(
 					"Comment",
 					text=f"Plaid→Mercury merge ({tier}): absorbed Plaid duplicate {p.name}"
@@ -397,7 +436,10 @@ def merge_plaid_mercury_duplicates(
 
 	for p, m, tier in conflicts:
 		log(
-			"conflict-both-reconciled", p, m, tier,
+			"conflict-both-reconciled",
+			p,
+			m,
+			tier,
 			f"BOTH reconciled — Plaid against {sorted(_voucher_refs(p.name)) or 'vouchers'},"
 			" Mercury separately; likely double-booked. Merge manually.",
 		)
@@ -425,8 +467,8 @@ def merge_plaid_mercury_duplicates(
 def find_duplicate_bank_transactions(around: str, window_days: int = 3):
 	"""Stage 4 seam audit: same (bank_account, date, amount) under different
 	transaction ids inside the Plaid→Mercury overlap window. Manual review list."""
-	start = add_days(getdate(around), -window_days)
-	end = add_days(getdate(around), window_days)
+	start = add_days(cast("datetime.date", getdate(around)), -window_days)
+	end = add_days(cast("datetime.date", getdate(around)), window_days)
 	rows = frappe.db.sql(
 		"""
 		select bank_account, date, deposit, withdrawal,

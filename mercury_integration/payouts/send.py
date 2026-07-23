@@ -19,9 +19,10 @@ transaction is adopted from the error body.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import frappe
+import frappe.utils
 from frappe import _
 from frappe.integrations.utils import create_request_log
 from frappe.utils import add_to_date, flt, get_datetime, now_datetime
@@ -33,6 +34,8 @@ from mercury_integration.sync.client_factory import get_client, get_settings
 from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
+	from datetime import datetime
+
 	from mercury_integration.client.models import MercuryTransaction
 
 PAYOUT_DOCTYPES = ("Salary Slip", "Payment Entry")
@@ -46,7 +49,7 @@ class PayoutContext(frappe._dict):
 	pass
 
 
-def _context(reference_doctype: str, reference_name: str) -> PayoutContext:
+def _context(reference_doctype: str, reference_name: str) -> PayoutContext:  # type: ignore[reportReturnType]
 	settings = get_settings()
 	if reference_doctype == "Salary Slip":
 		slip = frappe.db.get_value(
@@ -68,6 +71,7 @@ def _context(reference_doctype: str, reference_name: str) -> PayoutContext:
 		)
 		if not slip:
 			frappe.throw(_("Salary Slip {0} not found").format(reference_name))
+		slip = cast("frappe._dict", slip)
 		return PayoutContext(
 			doctype="Salary Slip",
 			name=slip.name,
@@ -101,6 +105,7 @@ def _context(reference_doctype: str, reference_name: str) -> PayoutContext:
 		)
 		if not payment_entry:
 			frappe.throw(_("Payment Entry {0} not found").format(reference_name))
+		payment_entry = cast("frappe._dict", payment_entry)
 		if payment_entry.payment_type != "Pay" or payment_entry.party_type != "Supplier":
 			frappe.throw(_("Only supplier payments (type Pay) can be sent via Mercury"))
 		return PayoutContext(
@@ -128,7 +133,9 @@ def _funding_account_id(context: PayoutContext) -> str:
 				context.doctype
 			)
 		)
-	account_id = frappe.db.get_value("Bank Account", context.funding_bank_account, "mercury_account_id")
+	account_id = cast(
+		"str", frappe.db.get_value("Bank Account", context.funding_bank_account, "mercury_account_id")
+	)
 	if not account_id:
 		frappe.throw(
 			_("Funding Bank Account {0} has no Mercury Account ID; run Sync Accounts").format(
@@ -152,21 +159,24 @@ def _attempt_number(reference_doctype: str, reference_name: str) -> int:
 	return failed + 1
 
 
-def _last_attempt_at(reference_doctype: str, reference_name: str):
-	return frappe.db.get_value(
-		"Integration Request",
-		{
-			"integration_request_service": "Mercury",
-			"request_description": ATTEMPT_DESCRIPTION,
-			"reference_doctype": reference_doctype,
-			"reference_docname": reference_name,
-		},
-		"max(creation)",
+def _last_attempt_at(reference_doctype: str, reference_name: str) -> str | None:
+	return cast(
+		"str | None",
+		frappe.db.get_value(
+			"Integration Request",
+			{
+				"integration_request_service": "Mercury",
+				"request_description": ATTEMPT_DESCRIPTION,
+				"reference_doctype": reference_doctype,
+				"reference_docname": reference_name,
+			},
+			"max(creation)",
+		),
 	)
 
 
 def _set_payout_fields(reference_doctype: str, reference_name: str, values: dict) -> None:
-	frappe.db.set_value(reference_doctype, reference_name, values, update_modified=False)
+	frappe.db.set_value(reference_doctype, reference_name, cast("str", values), update_modified=False)
 
 
 def _is_duplicate_block(exc: Exception) -> bool:
@@ -228,17 +238,17 @@ def send_payout(reference_doctype: str, reference_name: str) -> dict:
 		return {"skipped": _("not submitted")}
 	if context.status not in SENDABLE_STATUSES:
 		return {"skipped": _("payout already {0}").format(context.status)}
-	if context.amount <= 0:
+	if cast("float", context.amount) <= 0:
 		return {"skipped": _("nothing to pay")}
 
 	if context.status == "Blocked - Duplicate":
 		last_attempt = _last_attempt_at(reference_doctype, reference_name)
-		if last_attempt and get_datetime(last_attempt) > get_datetime(
-			add_to_date(now_datetime(), hours=-DUPLICATE_BLOCK_HOURS)
+		if last_attempt and cast("datetime", get_datetime(last_attempt)) > cast(
+			"datetime", get_datetime(add_to_date(now_datetime(), hours=-DUPLICATE_BLOCK_HOURS))
 		):
 			return {"skipped": _("Mercury's 24h duplicate guard is still active")}
 
-	recipient_id = get_recipient_id(context.party_type, context.party)
+	recipient_id = get_recipient_id(cast("str", context.party_type), cast("str", context.party))
 	if not recipient_id:
 		_set_payout_fields(reference_doctype, reference_name, {"mercury_payment_status": "Failed"})
 		return {
@@ -324,13 +334,13 @@ def poll_approval_requests() -> None:
 
 	for row in _pending_approval_docs():
 		try:
-			approval = client.get_send_money_request(row.mercury_approval_request_id)
+			approval = client.get_send_money_request(str(row.mercury_approval_request_id))
 		except Exception:
 			frappe.log_error(title=f"Mercury approval poll failed for {row.doctype} {row.name}")
 			continue
 		if approval.status in APPROVAL_DEAD_STATUSES:
 			status = "Rejected" if approval.status == "rejected" else "Cancelled"
-			_set_payout_fields(row.doctype, row.name, {"mercury_payment_status": status})
+			_set_payout_fields(str(row.doctype), str(row.name), {"mercury_payment_status": status})
 			notify_failure(
 				f"Payout {status.lower()} in Mercury for {row.name}",
 				f"The send-money request {row.mercury_approval_request_id} was {approval.status}.",
@@ -345,10 +355,12 @@ def poll_approval_requests() -> None:
 def on_transaction_event(txn: MercuryTransaction) -> None:
 	"""Called from event dispatch: advance payout status by transaction id."""
 	for doctype in PAYOUT_DOCTYPES:
-		name = frappe.db.get_value(doctype, {"mercury_transaction_id": txn.id})
+		name = cast("str | None", frappe.db.get_value(doctype, {"mercury_transaction_id": txn.id}))
 		if not name and txn.request_id:
 			# approval-mode payout: adopt the transaction created on approval
-			name = frappe.db.get_value(doctype, {"mercury_approval_request_id": txn.request_id})
+			name = cast(
+				"str | None", frappe.db.get_value(doctype, {"mercury_approval_request_id": txn.request_id})
+			)
 			if name:
 				_set_payout_fields(doctype, name, {"mercury_transaction_id": txn.id})
 		if not name:

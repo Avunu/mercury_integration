@@ -3,11 +3,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import cint
 
 from mercury_integration.ar.gateway import MercuryARGatewayMixin
+
+if TYPE_CHECKING:
+	from frappe.utils.redis_wrapper import RedisWrapper
 
 WEBHOOK_SECRET_CACHE_KEY = "mercury_webhook_secret"
 
@@ -31,6 +37,7 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		auto_journal_for_income: DF.Check
 		auto_journal_max_amount: DF.Currency
 		auto_reconcile_payouts: DF.Check
+		auto_reconcile_transfers: DF.Check
 		automatic_sync: DF.Check
 		card_fees_account: DF.Link | None
 		category_delete_policy: DF.Literal["Never Delete", "Delete in Mercury"]
@@ -79,7 +86,7 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 			frappe.throw(_("Mercury API token validation failed: {0}").format(exc))
 
 	def on_update(self) -> None:
-		frappe.cache().delete_value(WEBHOOK_SECRET_CACHE_KEY)
+		cast("RedisWrapper", frappe.cache)().delete_value(WEBHOOK_SECRET_CACHE_KEY)
 		if self.enable_ar_gateway:
 			self._register_payment_gateway()
 
@@ -100,7 +107,7 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		from mercury_integration.sync.transactions import enqueue_backfill
 
 		self._ensure_write_permission()
-		enqueue_backfill(days=frappe.utils.cint(days))
+		enqueue_backfill(days=cint(days))
 
 	@frappe.whitelist()
 	def register_webhook(self) -> str:
@@ -121,7 +128,7 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		from mercury_integration.sync.events import enqueue_replay
 
 		self._ensure_write_permission()
-		enqueue_replay(hours=frappe.utils.cint(hours))
+		enqueue_replay(hours=cint(hours))
 
 	def _ensure_write_permission(self) -> None:
 		if not self.has_permission("write"):
@@ -133,7 +140,7 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		# A freshly-typed (unsaved) token lives on the doc; a saved one in __Auth.
 		value = self.get(fieldname)
 		if value and "*" not in value:
-			return value
+			return cast("str", value)
 		token = self.get_password(fieldname, raise_exception=False)
 		if not token:
 			frappe.throw(
@@ -141,4 +148,4 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 					_("Sandbox API Token") if self.use_sandbox else _("API Token")
 				)
 			)
-		return token
+		return cast("str", token)

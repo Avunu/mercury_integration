@@ -16,8 +16,11 @@ Mercury owns the visibility flags (never stored or pushed after create).
 
 from __future__ import annotations
 
+from typing import cast
+
 import frappe
 from frappe.integrations.utils import create_request_log
+from frappe.utils import escape_html
 
 from mercury_integration.client import MercuryNotFoundError
 from mercury_integration.sync.client_factory import get_client, get_settings
@@ -76,7 +79,10 @@ def _skip_doc_event() -> bool:
 
 
 def _account_snapshot(account_name: str) -> frappe._dict | None:
-	return frappe.db.get_value("Account", account_name, ACCOUNT_FIELDS, as_dict=True)
+	return cast(
+		"frappe._dict | None",
+		frappe.db.get_value("Account", account_name, list(ACCOUNT_FIELDS), as_dict=True),
+	)
 
 
 def _set_category_id(account_name: str, category_id: str | None) -> None:
@@ -166,7 +172,7 @@ def push_account(account: str) -> None:
 	eligible = _is_eligible(snapshot, settings)
 	try:
 		if snapshot.mercury_category_id and eligible:
-			encoded = encode_category_name(snapshot.account_number, snapshot.account_name)
+			encoded = encode_category_name(str(snapshot.account_number), str(snapshot.account_name))
 			try:
 				client.update_category(snapshot.mercury_category_id, name=encoded)
 			except MercuryNotFoundError:
@@ -180,7 +186,7 @@ def push_account(account: str) -> None:
 					pass
 			_set_category_id(account, None)
 		elif eligible:
-			encoded = encode_category_name(snapshot.account_number, snapshot.account_name)
+			encoded = encode_category_name(str(snapshot.account_number), str(snapshot.account_name))
 			created = client.create_category(name=encoded)
 			_set_category_id(account, created.id)
 	except Exception as exc:
@@ -224,14 +230,14 @@ def reconcile_categories() -> None:
 	for category in remote.values():
 		mapped = by_category_id.get(category.id)
 		if mapped:
-			encoded = encode_category_name(mapped.account_number, mapped.account_name)
+			encoded = encode_category_name(str(mapped.account_number), str(mapped.account_name))
 			if category.name != encoded:
 				client.update_category(category.id, name=encoded)  # heal drift; ERP owns the name
 			continue
 		number = parse_account_number(category.name)
 		candidate = number and by_number.get(number)
 		if candidate and not candidate.mercury_category_id:
-			_set_category_id(candidate.name, category.id)  # adopt Mercury-created category
+			_set_category_id(str(candidate.name), category.id)  # adopt Mercury-created category
 			candidate.mercury_category_id = category.id
 			by_category_id[category.id] = candidate
 		else:
@@ -239,16 +245,16 @@ def reconcile_categories() -> None:
 
 	for account in accounts:
 		if account.mercury_category_id and account.mercury_category_id not in remote:
-			_set_category_id(account.name, None)  # deleted upstream; recreate below
+			_set_category_id(str(account.name), None)  # deleted upstream; recreate below
 			account.mercury_category_id = None
 		if not account.mercury_category_id:
 			try:
-				push_account(account.name)
+				push_account(str(account.name))
 			except Exception:
 				continue  # logged by push_account; retried next sweep
 
 	if unmatched_remote:
-		items = "".join(f"<li>{frappe.utils.escape_html(name)}</li>" for name in sorted(unmatched_remote))
+		items = "".join(f"<li>{escape_html(name)}</li>" for name in sorted(unmatched_remote))
 		notify_failure(
 			"Unmapped Mercury categories",
 			"These Mercury categories match no synced GL account. Rename them to"

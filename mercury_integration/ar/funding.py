@@ -14,6 +14,7 @@ ambiguity alerts for manual bank reconciliation instead of guessing.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING, cast
 
 import frappe
 from frappe.utils import add_days, flt, getdate
@@ -21,14 +22,19 @@ from frappe.utils import add_days, flt, getdate
 from mercury_integration.sync.client_factory import get_settings
 from mercury_integration.utils.alerts import notify_failure
 
+if TYPE_CHECKING:
+	from datetime import date
+
 FUNDING_WINDOW_DAYS = 7
 CARD_FEE_RATE = 0.029
 CARD_FEE_FIXED = 0.30
 
 
 def _paid_unfunded_candidates() -> list[frappe._dict]:
-	return frappe.db.sql(
-		"""
+	return cast(
+		"list[frappe._dict]",
+		frappe.db.sql(
+			"""
 		select pr.name, pr.mercury_invoice_id, pr.grand_total, pe.posting_date as paid_on
 		from `tabPayment Request` pr
 		join `tabPayment Entry` pe on pe.reference_no = pr.mercury_invoice_id and pe.docstatus = 1
@@ -40,12 +46,13 @@ def _paid_unfunded_candidates() -> list[frappe._dict]:
 				where je.cheque_no = pr.mercury_invoice_id and je.docstatus = 1
 			)
 		""",
-		as_dict=True,
+			as_dict=True,
+		),
 	)
 
 
 def _amount_matches(candidate: frappe._dict, deposit: float, allow_fee_tolerance: bool) -> bool:
-	gross = flt(candidate.grand_total, 2)
+	gross = flt(cast("float", candidate.grand_total), 2)
 	if abs(gross - deposit) < 0.005:
 		return True
 	if allow_fee_tolerance and deposit < gross:
@@ -60,7 +67,7 @@ def _create_funding_journal(bank_transaction, candidate: frappe._dict, deposit: 
 		reconcile_vouchers,
 	)
 
-	gross = flt(candidate.grand_total, 2)
+	gross = flt(cast("float", candidate.grand_total), 2)
 	fee = flt(gross - deposit, 2)
 	bank_gl_account = frappe.db.get_value("Bank Account", bank_transaction.bank_account, "account")
 	company = frappe.db.get_value("Account", bank_gl_account, "company")
@@ -121,12 +128,12 @@ def process_ar_funding_transaction(doc, method=None) -> None:
 	if flt(doc.deposit) <= 0 or doc.bank_account != settings.ar_destination_bank_account:
 		return
 
-	window_start = getdate(add_days(doc.date, -FUNDING_WINDOW_DAYS))
-	window_end = getdate(add_days(doc.date, 1))
+	window_start = cast("date", getdate(add_days(doc.date, -FUNDING_WINDOW_DAYS)))
+	window_end = cast("date", getdate(add_days(doc.date, 1)))
 	candidates = [
 		candidate
 		for candidate in _paid_unfunded_candidates()
-		if candidate.paid_on and window_start <= getdate(candidate.paid_on) <= window_end
+		if candidate.paid_on and window_start <= cast("date", getdate(candidate.paid_on)) <= window_end
 	]
 
 	deposit = flt(doc.deposit, 2)

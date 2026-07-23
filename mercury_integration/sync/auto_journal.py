@@ -17,7 +17,7 @@ Idempotency: a submitted Journal Entry with ``cheque_no == <mercury txn id>``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import frappe
 import requests
@@ -26,6 +26,8 @@ from mercury_integration.sync.client_factory import get_client, get_settings
 from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
+	from datetime import datetime
+
 	from mercury_integration.client.models import MercuryTransaction
 
 MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
@@ -33,20 +35,26 @@ ROOT_TYPE_SETTING = {"Expense": "auto_journal_for_expense", "Income": "auto_jour
 
 
 def _mapped_account(category_id: str) -> frappe._dict | None:
-	return frappe.db.get_value(
-		"Account",
-		{"mercury_category_id": category_id},
-		["name", "root_type", "disabled"],
-		as_dict=True,
+	return cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			"Account",
+			{"mercury_category_id": category_id},
+			["name", "root_type", "disabled"],
+			as_dict=True,
+		),
 	)
 
 
 def _bank_transaction_untouched(name: str) -> bool:
-	doc = frappe.db.get_value(
-		"Bank Transaction",
-		name,
-		["docstatus", "status"],
-		as_dict=True,
+	doc = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			"Bank Transaction",
+			name,
+			["docstatus", "status"],
+			as_dict=True,
+		),
 	)
 	if not doc or doc.docstatus != 1:
 		return False
@@ -114,8 +122,8 @@ def _create_journal(bank_transaction: str, txn: MercuryTransaction, account: str
 		create_journal_entry_bts,
 	)
 
-	posting_date = (txn.posted_at or txn.created_at).date().isoformat()
-	user = frappe.session.user
+	posting_date = cast("datetime", txn.posted_at or txn.created_at).date().isoformat()
+	user = cast(str, frappe.session.user)
 	frappe.set_user("Administrator")
 	try:
 		create_journal_entry_bts(
@@ -144,7 +152,9 @@ def _create_journal(bank_transaction: str, txn: MercuryTransaction, account: str
 	finally:
 		frappe.set_user(user)
 
-	journal_entry = frappe.db.get_value("Journal Entry", {"cheque_no": txn.id, "docstatus": 1})
+	journal_entry = cast(
+		"str | None", frappe.db.get_value("Journal Entry", {"cheque_no": txn.id, "docstatus": 1})
+	)
 	if journal_entry:
 		import_attachments(txn.id, bank_transaction, journal_entry)
 	return journal_entry
@@ -165,7 +175,7 @@ def evaluate(bank_transaction: str, txn: MercuryTransaction) -> str | None:
 	mapped = _mapped_account(txn.category_data.id)
 	if not mapped or mapped.disabled:
 		return None
-	root_gate = ROOT_TYPE_SETTING.get(mapped.root_type)
+	root_gate = ROOT_TYPE_SETTING.get(str(mapped.root_type))
 	if not root_gate or not settings.get(root_gate):
 		return None
 
@@ -177,4 +187,4 @@ def evaluate(bank_transaction: str, txn: MercuryTransaction) -> str | None:
 	if frappe.db.exists("Journal Entry", {"cheque_no": txn.id, "docstatus": 1}):
 		return None
 
-	return _create_journal(bank_transaction, txn, mapped.name, settings)
+	return _create_journal(bank_transaction, txn, str(mapped.name), settings)

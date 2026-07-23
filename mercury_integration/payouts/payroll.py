@@ -13,10 +13,11 @@ reconciled against that single JE (see reconcile.py).
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, flt, now_datetime
+from frappe.utils import add_to_date, flt, fmt_money, now_datetime
 
 from mercury_integration.payouts.send import LIVE_STATUSES, send_payout
 from mercury_integration.utils.alerts import notify_failure
@@ -63,14 +64,14 @@ def _duplicate_warning(slip: frappe._dict) -> str | None:
 	if twin:
 		return _(
 			"An identical payment ({0}) to this employee was sent within 24h — Mercury will block it"
-		).format(frappe.utils.fmt_money(amount, currency="USD"))
+		).format(fmt_money(amount, currency="USD"))
 	return None
 
 
 @frappe.whitelist()
 def get_payroll_payout_preview(payroll_entry: str) -> list[dict]:
 	"""Preview rows for the Pay via Mercury dialog."""
-	frappe.only_for(PAYROLL_ROLES)
+	frappe.only_for(cast("tuple[str]", PAYROLL_ROLES))
 	rows = []
 	for slip in _slips_for_entry(payroll_entry):
 		recipient_status = frappe.db.get_value("Employee", slip.employee, "mercury_recipient_status") or ""
@@ -99,7 +100,7 @@ def get_payroll_payout_preview(payroll_entry: str) -> list[dict]:
 @frappe.whitelist()
 def initiate_payroll_payouts(payroll_entry: str, salary_slips: str | list[str]) -> None:
 	"""Queue the background send run for the selected slips."""
-	frappe.only_for(PAYROLL_ROLES)
+	frappe.only_for(cast("tuple[str]", PAYROLL_ROLES))
 	if isinstance(salary_slips, str):
 		salary_slips = json.loads(salary_slips)
 	if not salary_slips:

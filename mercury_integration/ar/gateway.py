@@ -26,6 +26,8 @@ payer-initiated on the Mercury pay page (accepted regression, 2026-07-18).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Literal, cast
+
 import frappe
 from frappe import _
 
@@ -37,6 +39,10 @@ class MercuryARGatewayMixin:
 	"""Mixed into MercurySettings (the resolved gateway controller)."""
 
 	supported_currencies = SUPPORTED_CURRENCIES
+
+	if TYPE_CHECKING:
+		# provided by MercurySettings, into which this mixin is mixed
+		ar_email_sender: Literal["ERP", "Mercury"]
 
 	def validate_transaction_currency(self, currency: str) -> None:
 		if currency not in self.supported_currencies:
@@ -95,16 +101,19 @@ def register_mercury_gateway(settings) -> None:
 	if not settings.ar_clearing_account:
 		return
 	currency = frappe.db.get_value("Account", settings.ar_clearing_account, "account_currency") or "USD"
-	existing = frappe.db.get_value(
-		"Payment Gateway Account",
-		{"payment_gateway": GATEWAY_NAME},
-		["name", "payment_account"],
-		as_dict=True,
+	existing = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(
+			"Payment Gateway Account",
+			{"payment_gateway": GATEWAY_NAME},
+			["name", "payment_account"],
+			as_dict=True,
+		),
 	)
 	if existing:
 		if existing.payment_account != settings.ar_clearing_account:
 			frappe.db.set_value(
-				"Payment Gateway Account", existing.name, "payment_account", settings.ar_clearing_account
+				"Payment Gateway Account", str(existing.name), "payment_account", settings.ar_clearing_account
 			)
 		return
 	frappe.get_doc(
