@@ -155,6 +155,8 @@ def evaluate(bank_transaction: str, txn: MercuryTransaction) -> str | None:
 	settings = get_settings()
 	if not (settings.enabled and settings.enable_auto_journal):
 		return None
+	if (txn.kind or "") == "internalTransfer":
+		return None  # handled by sync.transfers (Bank Entry between the two accounts)
 	if not txn.is_posted or not txn.category_data:
 		return None
 	if settings.require_attachment and not txn.attachments:

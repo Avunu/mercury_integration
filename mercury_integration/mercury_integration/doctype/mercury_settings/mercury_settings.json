@@ -38,6 +38,7 @@
   "auto_journal_column",
   "auto_journal_for_expense",
   "auto_journal_for_income",
+  "auto_reconcile_transfers",
   "default_cost_center",
   "ar_gateway_section",
   "enable_ar_gateway",
@@ -268,6 +269,13 @@
    "fieldname": "auto_journal_for_income",
    "fieldtype": "Check",
    "label": "For Income Accounts"
+  },
+  {
+   "default": "1",
+   "description": "Automatically book a \"Bank Entry\" Journal Entry between the two Mercury accounts for each internal transfer and reconcile both sides. Independent of categorization/attachments.",
+   "fieldname": "auto_reconcile_transfers",
+   "fieldtype": "Check",
+   "label": "Auto Reconcile Internal Transfers"
   },
   {
    "depends_on": "eval:doc.enable_auto_journal",

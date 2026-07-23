@@ -177,7 +177,11 @@ def upsert_transaction(txn: MercuryTransaction) -> str | None:
 
 	if name and frappe.db.get_value("Bank Transaction", name, "docstatus") == 1:
 		from mercury_integration.sync.auto_journal import evaluate
+		from mercury_integration.sync.transfers import reconcile_internal_transfer
 
+		# internal transfers reconcile into a Bank Entry between the two accounts;
+		# everything else follows the categorized auto-journal path
+		reconcile_internal_transfer(name, txn)
 		evaluate(name, txn)
 	return name
 
