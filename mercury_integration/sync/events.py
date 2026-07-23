@@ -3,11 +3,16 @@
 
 """Mercury event ingestion: webhook push + events-API poll + manual replay.
 
-State model (core-doctype reuse, no bespoke logs):
-- raw inbound webhook deliveries → **Webhook Request Log** (see webhooks.py)
-- per-event processing state    → **Integration Request** with
-  ``integration_request_service = "Mercury"`` and ``request_id`` = Mercury
-  event id (idempotency via exists-check under a filelock)
+State model (core-doctype reuse, no bespoke logs): every inbound event — webhook
+push, poller, or replay — is recorded as a single **Integration Request** with
+``is_remote_request = 1``, ``integration_request_service = "Mercury"`` and
+``request_id`` = the Mercury event id (idempotency via an exists-check under a
+filelock). ``request_description`` carries the channel it arrived on; webhook
+deliveries additionally store the request ``url`` and ``request_headers``.
+
+Frappe's *Webhook Request Log* is deliberately **not** used: it is written only
+by core's outbound ``Webhook`` doctype (webhook.py:203) and its fields describe
+an outgoing delivery attempt (``webhook`` link, ``response``), not an inbound one.
 
 Handlers always refetch authoritative resource state from the API, so
 out-of-order or duplicate processing converges — no version guard needed.
@@ -53,8 +58,17 @@ def _event_exists(event_id: str) -> bool:
 	)
 
 
-def ingest_event(payload: dict[str, Any], source: str) -> str | None:
-	"""Record an event exactly once and enqueue its processing.
+def ingest_event(
+	payload: dict[str, Any],
+	source: str,
+	url: str | None = None,
+	request_headers: dict[str, str] | None = None,
+) -> str | None:
+	"""Record an event exactly once as an Integration Request and enqueue it.
+
+	``url``/``request_headers`` are only supplied by the webhook channel (the
+	poller and replay have no HTTP request context) and are omitted rather than
+	passed as None, so they don't serialize to a literal "null".
 
 	Returns the Integration Request name, or None when already seen
 	(at-least-once delivery from both the webhook and the poller).
@@ -62,6 +76,12 @@ def ingest_event(payload: dict[str, Any], source: str) -> str | None:
 	event_id = payload.get("id")
 	if not event_id:
 		return None
+
+	delivery: dict[str, Any] = {}
+	if url:
+		delivery["url"] = url
+	if request_headers:
+		delivery["request_headers"] = request_headers
 
 	with filelock(f"mercury_evt_{event_id}", timeout=10):
 		if _event_exists(event_id):
@@ -73,6 +93,7 @@ def ingest_event(payload: dict[str, Any], source: str) -> str | None:
 			status="Queued",
 			request_description=source,
 			is_remote_request=1,
+			**delivery,
 		)
 
 	frappe.enqueue(

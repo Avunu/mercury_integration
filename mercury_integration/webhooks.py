@@ -18,7 +18,6 @@ import json
 from typing import TYPE_CHECKING, cast
 
 import frappe
-from frappe.integrations.doctype.webhook.webhook import log_request
 
 from mercury_integration.client.webhook_signature import verify_mercury_signature
 
@@ -50,7 +49,13 @@ def verify_signature(raw_body: bytes, header: str | None) -> bool:
 
 @frappe.whitelist(allow_guest=True, methods=["POST"])
 def webhook() -> str:
-	"""Fast-ack receiver: verify, log, record once, enqueue processing."""
+	"""Fast-ack receiver: verify, record once, enqueue processing.
+
+	The delivery is recorded as an **Integration Request** (``is_remote_request
+	= 1``) by ``ingest_event`` — carrying the payload plus this request's URL
+	and headers. Core's Webhook Request Log belongs to frappe's own *outbound*
+	Webhook doctype and is not used here.
+	"""
 	raw_body = frappe.request.get_data()
 	if not verify_signature(raw_body, frappe.get_request_header(SIGNATURE_HEADER)):
 		raise frappe.AuthenticationError
@@ -60,16 +65,21 @@ def webhook() -> str:
 	except ValueError:
 		frappe.throw("Invalid JSON body", frappe.ValidationError)
 
-	log_request(
-		webhook="",
-		doctype="",
-		docname="",
-		url=frappe.request.url,
-		headers=dict(frappe.request.headers),
-		data=payload,  # type: ignore[reportPossiblyUnbound]
-	)
-
 	from mercury_integration.sync.events import ingest_event
 
-	ingest_event(payload, source="Webhook")  # type: ignore[reportPossiblyUnbound]
+	if not payload.get("id"):  # type: ignore[reportPossiblyUnbound]
+		# no event id means ingest_event cannot record it — leave a trace instead
+		# of acking into the void (Mercury does not retry non-2xx except 429)
+		frappe.log_error(
+			title="Mercury webhook delivery without an event id",
+			message=frappe.as_json(payload),  # type: ignore[reportPossiblyUnbound]
+		)
+		return "ok"
+
+	ingest_event(
+		payload,  # type: ignore[reportPossiblyUnbound]
+		source="Webhook",
+		url=frappe.request.url,
+		request_headers=dict(frappe.request.headers),
+	)
 	return "ok"

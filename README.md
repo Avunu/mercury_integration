@@ -27,9 +27,13 @@ transaction attachment import.
   | Employee / Supplier | `mercury_recipient_id/_status`, `mercury_invite_id` | recipient onboarding via invites (no bank PII in ERP) |
   | Salary Slip / Payment Entry | `mercury_transaction_id`, `mercury_payment_status`, `mercury_approval_request_id` | per-payout state |
 
-- **Core log reuse** — inbound webhooks → Webhook Request Log; event
-  processing state and outbound attempts → Integration Request (service
-  "Mercury"; retention via Log Settings).
+- **Core log reuse** — every inbound event (webhook push, poller, or replay)
+  *and* every outbound attempt → Integration Request (service "Mercury";
+  inbound carries `is_remote_request = 1`, the event id in `request_id`, the
+  channel in `request_description`, and — for webhooks — the request `url` and
+  `request_headers`; retention via Log Settings). Frappe's *Webhook Request
+  Log* is intentionally not used: core writes it only for its own **outbound**
+  Webhook doctype.
 - **Event flow** — guest webhook endpoint
   (`/api/method/mercury_integration.webhooks.webhook`, HMAC `Mercury-Signature`)
   fast-acks and enqueues; a */15 events-API poller is a complete standalone
