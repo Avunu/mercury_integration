@@ -34,6 +34,97 @@ window.mercury_integration.add_recipient_buttons = function (frm, party_type) {
 		);
 	}
 
+	if (!frm.doc.mercury_recipient_id) {
+		frm.add_custom_button(
+			__("Match Mercury Contact"),
+			() => {
+				frappe
+					.call({
+						method: "mercury_integration.payouts.recipients.list_unmatched_recipients",
+						args: { party_type: party_type, party: frm.doc.name },
+						freeze: true,
+						freeze_message: __("Loading Mercury contacts…"),
+					})
+					.then((response) => {
+						const contacts = response.message || [];
+						if (!contacts.length) {
+							frappe.msgprint({
+								title: __("No unmatched contacts"),
+								message: __(
+									"Every active Mercury contact is already linked to an Employee or Supplier. Send an invite to onboard a new payee.",
+								),
+								indicator: "orange",
+							});
+							return;
+						}
+
+						const options = contacts.map((contact) => {
+							const detail = [
+								contact.email,
+								contact.account_last4
+									? __("ACH ••{0}", [contact.account_last4])
+									: contact.default_payment_method,
+								contact.date_last_paid
+									? __("last paid {0}", [frappe.datetime.str_to_user(contact.date_last_paid)])
+									: "",
+								contact.suggested_because ? `← ${contact.suggested_because}` : "",
+							]
+								.filter(Boolean)
+								.join(" · ");
+							return {
+								value: contact.recipient_id,
+								label: contact.suggested ? `★ ${contact.name}` : contact.name,
+								description: detail,
+							};
+						});
+						const suggested = contacts.filter((contact) => contact.suggested);
+
+						const dialog = new frappe.ui.Dialog({
+							title: __("Match Mercury Contact"),
+							fields: [
+								{
+									fieldname: "intro",
+									fieldtype: "HTML",
+									options: `<p class="text-muted">${__(
+										"Link {0} to a contact that already exists in Mercury — no invite needed. Only contacts not yet linked to another record are listed; ★ marks a likely match.",
+										[frappe.utils.escape_html(frm.doc.name)],
+									)}</p>`,
+								},
+								{
+									fieldname: "recipient_id",
+									fieldtype: "Autocomplete",
+									label: __("Mercury Contact"),
+									options: options,
+									default: suggested.length === 1 ? suggested[0].recipient_id : "",
+									reqd: 1,
+								},
+							],
+							primary_action_label: __("Match"),
+							primary_action(values) {
+								frappe
+									.call("mercury_integration.payouts.recipients.match_recipient", {
+										party_type: party_type,
+										party: frm.doc.name,
+										recipient_id: values.recipient_id,
+									})
+									.then((result) => {
+										const info = result.message || {};
+										dialog.hide();
+										frappe.show_alert({
+											message: __("Matched to {0}", [info.recipient_name || values.recipient_id]),
+											indicator: "green",
+										});
+										frm.reload_doc();
+									});
+							},
+						});
+						dialog.show();
+					});
+			},
+			group,
+		);
+	}
+
 	if (frm.doc.mercury_recipient_id || frm.doc.mercury_invite_id) {
 		frm.add_custom_button(
 			__("Refresh from Mercury"),

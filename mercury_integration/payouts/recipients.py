@@ -200,6 +200,108 @@ def _recipient_emails(recipient: Recipient) -> set[str]:
 	return {email for value in values if (email := _normalize_email(value))}
 
 
+def _claimed_recipient_ids() -> dict[str, tuple[str, str]]:
+	"""{recipient id: (party_type, party)} for every recipient already linked."""
+	claimed: dict[str, tuple[str, str]] = {}
+	for other_type in PARTY_TYPES:
+		for row in frappe.get_all(
+			other_type,
+			filters={"mercury_recipient_id": ("is", "set")},
+			fields=["name", "mercury_recipient_id"],
+		):
+			if row.mercury_recipient_id:
+				claimed[str(row.mercury_recipient_id)] = (other_type, str(row.name))
+	return claimed
+
+
+def _party_match_keys(party_type: str, party: str) -> tuple[set[str], str]:
+	"""(emails, normalized name) used to surface the likely contact in the picker."""
+	email_fields = EMPLOYEE_EMAIL_FIELDS if party_type == "Employee" else SUPPLIER_EMAIL_FIELDS
+	name_field = "employee_name" if party_type == "Employee" else "supplier_name"
+	row = cast(
+		"frappe._dict | None",
+		frappe.db.get_value(party_type, party, [*email_fields, name_field], as_dict=True),
+	)
+	if not row:
+		return set(), ""
+	return _row_emails(party_type, row), _normalize_name(row.get(name_field))
+
+
+@frappe.whitelist()
+def list_unmatched_recipients(party_type: str = "Employee", party: str | None = None) -> list[dict]:
+	"""Active Mercury contacts not yet linked to any Employee or Supplier.
+
+	When ``party`` is given, contacts that look like it (email match, then name)
+	are flagged ``suggested`` and sorted first so the obvious pick leads.
+	"""
+	frappe.only_for(cast("tuple[str]", ("System Manager", "HR Manager", "Accounts Manager")))
+	_validate_party_type(party_type)
+
+	claimed = _claimed_recipient_ids()
+	emails, name_key = _party_match_keys(party_type, party) if party else (set(), "")
+
+	rows: list[dict] = []
+	for recipient in get_client(require_enabled=True).list_recipients():
+		if (recipient.status or "").lower() != ACTIVE_RECIPIENT_STATUS or recipient.id in claimed:
+			continue
+		recipient_emails = _recipient_emails(recipient)
+		if emails and recipient_emails & emails:
+			suggested, why = True, _("same email")
+		elif name_key and _normalize_name(recipient.name) == name_key:
+			suggested, why = True, _("same name")
+		else:
+			suggested, why = False, ""
+		rows.append(
+			{
+				"recipient_id": recipient.id,
+				"name": recipient.name or recipient.id,
+				"email": next(iter(sorted(recipient_emails)), ""),
+				"account_last4": recipient.ach_account_last4,
+				"account_type": recipient.ach_account_type,
+				"default_payment_method": recipient.default_payment_method,
+				"date_last_paid": str(recipient.date_last_paid) if recipient.date_last_paid else "",
+				"suggested": suggested,
+				"suggested_because": why,
+			}
+		)
+	rows.sort(key=lambda row: (not row["suggested"], _normalize_name(row["name"])))
+	return rows
+
+
+@frappe.whitelist()
+def match_recipient(party_type: str, party: str, recipient_id: str) -> dict:
+	"""Associate an existing Mercury contact with an unlinked Employee/Supplier."""
+	frappe.only_for(cast("tuple[str]", ("System Manager", "HR Manager", "Accounts Manager")))
+	_validate_party_type(party_type)
+	if not recipient_id:
+		frappe.throw(_("Select a Mercury contact to match"))
+
+	existing = cast("str | None", frappe.db.get_value(party_type, party, "mercury_recipient_id"))
+	if existing:
+		frappe.throw(
+			_("{0} {1} is already linked to Mercury contact {2}").format(party_type, party, existing)
+		)
+
+	# re-check under the current state: the picker list may be stale
+	owner = _claimed_recipient_ids().get(recipient_id)
+	if owner:
+		frappe.throw(_("That Mercury contact is already linked to {0} {1}").format(*owner))
+
+	recipient = get_client(require_enabled=True).get_recipient(recipient_id)
+	status = "Active" if (recipient.status or "").lower() == ACTIVE_RECIPIENT_STATUS else "Disabled"
+	_set_recipient_fields(
+		party_type,
+		party,
+		{"mercury_recipient_id": recipient.id, "mercury_recipient_status": status},
+	)
+	return {
+		"status": status,
+		"recipient_name": recipient.name,
+		"account_last4": recipient.ach_account_last4,
+		"account_type": recipient.ach_account_type,
+	}
+
+
 def _unlinked_parties(party_type: str, include_inactive: bool) -> list[frappe._dict]:
 	"""Parties with no Mercury recipient yet (active-only unless asked otherwise)."""
 	filters: dict[str, Any] = {"mercury_recipient_id": ("is", "not set")}

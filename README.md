@@ -33,7 +33,10 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 3.  **Register Webhook** button (production only) → stores endpoint id + signing secret, sends a verification event.
 4.  **Backfill Transactions** button → windowed import; enable _Automatic Transaction Sync_ for the hourly job.
 5.  Category sync / auto-journal / AR gateway / payouts each have their own enable flags and sections in Mercury Settings.
-6.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them — match on email, then name, writing `mercury_recipient_id` only where the pairing is 1:1 in both directions (duplicates are reported, never guessed):
+6.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them.
+    
+    -   **Per record** — *Mercury → Match Mercury Contact* on the Employee/Supplier form opens a searchable picker of Mercury contacts that aren't linked to any other record; ★ flags a likely match (same email, else same name) and it is preselected when unambiguous.
+    -   **In bulk** — match on email then name, writing `mercury_recipient_id` only where the pairing is 1:1 in both directions (duplicates are reported, never guessed):
     
     ```bash
     # dry run (default) — review, then re-run with dry_run False
