@@ -33,6 +33,18 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 3.  **Register Webhook** button (production only) → stores endpoint id + signing secret, sends a verification event.
 4.  **Backfill Transactions** button → windowed import; enable _Automatic Transaction Sync_ for the hourly job.
 5.  Category sync / auto-journal / AR gateway / payouts each have their own enable flags and sections in Mercury Settings.
+6.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them — match on email, then name, writing `mercury_recipient_id` only where the pairing is 1:1 in both directions (duplicates are reported, never guessed):
+    
+    ```bash
+    # dry run (default) — review, then re-run with dry_run False
+    bench --site <site> execute mercury_integration.payouts.recipients.link_existing_recipients \
+      --kwargs "{'party_type': 'Employee'}"
+    # limit to specific records; collision checks still consider everyone
+    bench --site <site> execute mercury_integration.payouts.recipients.link_existing_recipients \
+      --kwargs "{'parties': ['HR-EMP-00008'], 'dry_run': False}"
+    ```
+    
+    Everyone else onboards via **Send Invite** (payee enters their own bank details; no bank PII in the ERP).
 
 ### Token guidance
 

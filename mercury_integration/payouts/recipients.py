@@ -8,11 +8,19 @@ the ERP stores only the recipient id and status (custom fields on Employee /
 Supplier) — bank account numbers never touch the ERP database (decision
 2026-07-18). A direct-create path exists for payees who won't self-serve: the
 details are passed straight to the Mercury API and not persisted.
+
+``link_existing_recipients`` covers the third case: payees that already exist
+as Mercury recipients (paid via mercury.com before the ERP integration). It
+adopts them by matching on email then name — the same adoption-cascade shape
+as ``sync.accounts._match_existing_bank_account`` — and never guesses: a match
+must be 1:1 in *both* directions or it is reported as ambiguous and skipped.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+import re
+from collections import Counter
+from typing import TYPE_CHECKING, Any, cast
 
 import frappe
 from frappe import _
@@ -20,6 +28,7 @@ from frappe import _
 from mercury_integration.sync.client_factory import get_client
 
 if TYPE_CHECKING:
+	from mercury_integration.client.models import Recipient
 	from mercury_integration.mercury_integration.doctype.mercury_settings.mercury_settings import (
 		MercurySettings,
 	)
@@ -27,6 +36,8 @@ if TYPE_CHECKING:
 PARTY_TYPES = ("Employee", "Supplier")
 
 EMPLOYEE_EMAIL_FIELDS = ("prefered_email", "company_email", "personal_email")
+SUPPLIER_EMAIL_FIELDS = ("email_id",)
+ACTIVE_RECIPIENT_STATUS = "active"
 
 
 def _validate_party_type(party_type: str) -> None:
@@ -169,6 +180,151 @@ def create_recipient_directly(
 		{"mercury_recipient_id": recipient.id, "mercury_recipient_status": "Active"},
 	)
 	return {"status": "Active", "account_last4": recipient.ach_account_last4}
+
+
+def _normalize_email(value: Any) -> str:
+	return str(value or "").strip().lower()
+
+
+def _normalize_name(value: Any) -> str:
+	return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _row_emails(party_type: str, row: frappe._dict) -> set[str]:
+	fields = EMPLOYEE_EMAIL_FIELDS if party_type == "Employee" else SUPPLIER_EMAIL_FIELDS
+	return {email for field in fields if (email := _normalize_email(row.get(field)))}
+
+
+def _recipient_emails(recipient: Recipient) -> set[str]:
+	values = [*(recipient.emails or []), recipient.contact_email]
+	return {email for value in values if (email := _normalize_email(value))}
+
+
+def _unlinked_parties(party_type: str, include_inactive: bool) -> list[frappe._dict]:
+	"""Parties with no Mercury recipient yet (active-only unless asked otherwise)."""
+	filters: dict[str, Any] = {"mercury_recipient_id": ("is", "not set")}
+	if party_type == "Employee":
+		if not include_inactive:
+			filters["status"] = "Active"
+		fields = ["name", "employee_name as party_name", *EMPLOYEE_EMAIL_FIELDS]
+	else:
+		if not include_inactive:
+			filters["disabled"] = 0
+		fields = ["name", "supplier_name as party_name", *SUPPLIER_EMAIL_FIELDS]
+	return frappe.get_all(party_type, filters=filters, fields=fields)
+
+
+@frappe.whitelist()
+def link_existing_recipients(
+	party_type: str = "Employee",
+	dry_run: bool = True,
+	include_inactive_parties: bool = False,
+	parties: list[str] | None = None,
+) -> dict:
+	"""Adopt pre-existing Mercury recipients onto Employees / Suppliers.
+
+	For payees already set up (and paid) in mercury.com before this integration.
+	Matches unlinked parties to **active** Mercury recipients by email, then by
+	normalized name. A pairing is only written when it is unambiguous in both
+	directions — one recipient for the party *and* one party for the recipient —
+	so duplicate ERP records sharing an email (or duplicate recipients) are
+	reported rather than guessed at. Idempotent: already-linked parties are
+	skipped, so re-running only picks up what is new. Pass ``parties`` to limit
+	the sweep to specific records (e.g. link one person from their form).
+
+	bench --site erp.avunu.net execute \\
+		mercury_integration.payouts.link_existing_recipients \\
+		--kwargs "{'party_type': 'Employee', 'dry_run': False}"
+	"""
+	frappe.only_for(cast("tuple[str]", ("System Manager", "HR Manager", "Accounts Manager")))
+	_validate_party_type(party_type)
+
+	recipients = [
+		r
+		for r in get_client(require_enabled=True).list_recipients()
+		if (r.status or "").lower() == ACTIVE_RECIPIENT_STATUS
+	]
+	by_email: dict[str, list[Recipient]] = {}
+	by_name: dict[str, list[Recipient]] = {}
+	for recipient in recipients:
+		for email in _recipient_emails(recipient):
+			by_email.setdefault(email, []).append(recipient)
+		if name_key := _normalize_name(recipient.name):
+			by_name.setdefault(name_key, []).append(recipient)
+
+	# pass 1: collect candidate matches per party
+	# candidates are built over *every* unlinked party, even when ``parties``
+	# narrows what we act on — otherwise the collision check below would not see
+	# a duplicate ERP record sitting outside the selection and could link blindly.
+	candidates: list[tuple[frappe._dict, list[Recipient], str]] = []
+	for party in _unlinked_parties(party_type, include_inactive_parties):
+		hits: dict[str, Recipient] = {}
+		for email in _row_emails(party_type, party):
+			hits.update({r.id: r for r in by_email.get(email, [])})
+		tier = "email"
+		if not hits:
+			hits = {r.id: r for r in by_name.get(_normalize_name(party.party_name), [])}
+			tier = "name"
+		candidates.append((party, list(hits.values()), tier if hits else ""))
+
+	# pass 2: a recipient claimed by more than one party is ambiguous for all of them
+	claims = Counter(matched[0].id for _p, matched, _t in candidates if len(matched) == 1)
+
+	selected = set(parties) if parties else None
+	linked: list[dict] = []
+	ambiguous: list[dict] = []
+	unmatched: list[str] = []
+	for party, matched, tier in candidates:
+		if selected is not None and party.name not in selected:
+			continue
+		label = f"{party.party_name} ({party.name})"
+		if not matched:
+			unmatched.append(label)
+		elif len(matched) > 1:
+			ambiguous.append(
+				{
+					"party": label,
+					"reason": "matches several Mercury recipients",
+					"recipients": [r.id for r in matched],
+				}
+			)
+		elif claims[matched[0].id] > 1:
+			ambiguous.append(
+				{
+					"party": label,
+					"reason": "this Mercury recipient also matches other ERP records — dedupe them first",
+					"recipients": [matched[0].id],
+				}
+			)
+		else:
+			recipient = matched[0]
+			linked.append(
+				{
+					"party": label,
+					"matched_on": tier,
+					"recipient_name": recipient.name,
+					"recipient_id": recipient.id,
+					"account_last4": recipient.ach_account_last4,
+					"default_payment_method": recipient.default_payment_method,
+				}
+			)
+			if not dry_run:
+				_set_recipient_fields(
+					party_type,
+					str(party.name),
+					{"mercury_recipient_id": recipient.id, "mercury_recipient_status": "Active"},
+				)
+
+	if not dry_run:
+		frappe.db.commit()
+	return {
+		"dry_run": dry_run,
+		"party_type": party_type,
+		"linked": linked,
+		"ambiguous": ambiguous,
+		"unmatched": unmatched,
+		"active_recipients": len(recipients),
+	}
 
 
 def sync_recipients() -> None:
