@@ -6,11 +6,11 @@ migrations. Deliberate ops actions run via ``bench execute`` (never
 patches.txt) — see README.md for the full staged runbook.
 
 Examples:
-	bench --site erp.avunu.net execute \
+	bench execute \
 		mercury_integration.migrate.repoint_subscription_plans \
 		--kwargs '{"from_gateway_account": "GoCardless - GC", "to_gateway_account": "Mercury"}'
-	bench --site erp.avunu.net execute mercury_integration.migrate.snapshot_plaid_integration_ids
-	bench --site erp.avunu.net execute \
+	bench execute mercury_integration.migrate.snapshot_plaid_integration_ids
+	bench execute \
 		mercury_integration.migrate.find_duplicate_bank_transactions --kwargs '{"around": "2026-08-01"}'
 """
 
@@ -251,7 +251,7 @@ def merge_plaid_mercury_duplicates(
 	Also backports Mercury API checkNumber into reference_number on surviving
 	Mercury rows and clears the redundant reference_number == transaction_id.
 
-	bench --site erp.avunu.net execute \\
+	bench execute \\
 		mercury_integration.migrate.merge_plaid_mercury_duplicates --kwargs '{"dry_run": false}'
 	"""
 	accounts = frappe.get_all("Bank Account", filters={"mercury_account_id": ("!=", "")}, pluck="name")

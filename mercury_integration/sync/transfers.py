@@ -282,7 +282,7 @@ def reconcile_existing_transfers(dry_run: bool = True) -> dict:
 	pair surfaces from both legs, so counts are de-duplicated on the canonical
 	(money-out) reference.
 
-	bench --site erp.avunu.net execute \\
+	bench execute \\
 		mercury_integration.sync.transfers.reconcile_existing_transfers --kwargs '{"dry_run": false}'
 	"""
 	settings = get_settings()
