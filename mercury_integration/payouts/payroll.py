@@ -17,9 +17,9 @@ from typing import cast
 
 import frappe
 from frappe import _
-from frappe.utils import add_to_date, flt, fmt_money, now_datetime
+from frappe.utils import add_to_date, fmt_money, now_datetime
 
-from mercury_integration.payouts.send import LIVE_STATUSES, send_payout
+from mercury_integration.payouts.send import LIVE_STATUSES, send_payout, slip_payout_amount
 from mercury_integration.utils.alerts import notify_failure
 
 PAYROLL_ROLES = ("System Manager", "HR Manager", "Payroll Manager", "Accounts Manager")
@@ -34,7 +34,6 @@ def _slips_for_entry(payroll_entry: str) -> list[frappe._dict]:
 			"employee",
 			"employee_name",
 			"net_pay",
-			"rounded_total",
 			"mercury_payment_status",
 			"mercury_transaction_id",
 		],
@@ -44,7 +43,7 @@ def _slips_for_entry(payroll_entry: str) -> list[frappe._dict]:
 
 def _duplicate_warning(slip: frappe._dict) -> str | None:
 	"""Mercury hard-blocks same recipient+account+amount within 24h."""
-	amount = flt(slip.rounded_total) or flt(slip.net_pay)
+	amount = slip_payout_amount(slip.net_pay)
 	twin = frappe.db.sql(
 		"""
 		select slip.name
@@ -52,7 +51,7 @@ def _duplicate_warning(slip: frappe._dict) -> str | None:
 		join `tabIntegration Request` ir
 			on ir.reference_doctype = 'Salary Slip' and ir.reference_docname = slip.name
 		where slip.employee = %s and slip.name != %s
-			and coalesce(slip.rounded_total, slip.net_pay) = %s
+			and round(slip.net_pay, 2) = %s
 			and slip.mercury_payment_status in ('Pending Approval', 'Sent', 'Posted', 'Reconciled')
 			and ir.integration_request_service = 'Mercury'
 			and ir.request_description = 'Payout'
@@ -75,7 +74,7 @@ def get_payroll_payout_preview(payroll_entry: str) -> list[dict]:
 	rows = []
 	for slip in _slips_for_entry(payroll_entry):
 		recipient_status = frappe.db.get_value("Employee", slip.employee, "mercury_recipient_status") or ""
-		amount = flt(slip.rounded_total) or flt(slip.net_pay)
+		amount = slip_payout_amount(slip.net_pay)
 		sendable = (
 			amount > 0
 			and recipient_status == "Active"

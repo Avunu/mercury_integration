@@ -43,6 +43,18 @@ SENDABLE_STATUSES = ("", None, "Failed", "Rejected", "Cancelled", "Blocked - Dup
 LIVE_STATUSES = ("Queued", "Pending Approval", "Sent", "Posted")
 ATTEMPT_DESCRIPTION = "Payout"
 DUPLICATE_BLOCK_HOURS = 24
+PAYOUT_PRECISION = 2
+
+
+def slip_payout_amount(net_pay: float | None) -> float:
+	"""Exact take-home pay, to the cent.
+
+	Never ``Salary Slip.rounded_total``: HRMS sets it to ``rounded(net_pay)`` —
+	whole dollars — so paying it over- or under-pays every employee whose net pay
+	has cents. ``Payroll Entry.make_bank_entry`` books the consolidated JE from the
+	unrounded salary component totals, so the exact figure is also what reconciles.
+	"""
+	return flt(net_pay, PAYOUT_PRECISION)
 
 
 class PayoutContext(frappe._dict):
@@ -61,7 +73,6 @@ def _context(reference_doctype: str, reference_name: str) -> PayoutContext:  # t
 				"employee",
 				"employee_name",
 				"net_pay",
-				"rounded_total",
 				"payroll_entry",
 				"start_date",
 				"end_date",
@@ -80,7 +91,7 @@ def _context(reference_doctype: str, reference_name: str) -> PayoutContext:  # t
 			party_type="Employee",
 			party=slip.employee,
 			party_name=slip.employee_name,
-			amount=flt(slip.rounded_total) or flt(slip.net_pay),
+			amount=slip_payout_amount(slip.net_pay),
 			funding_bank_account=settings.payroll_funding_bank_account,
 			note=f"Payroll {slip.payroll_entry or ''} {slip.employee_name or slip.employee}".strip(),
 			external_memo=f"Payroll {slip.start_date} to {slip.end_date}",
