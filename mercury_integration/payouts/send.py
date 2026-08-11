@@ -54,7 +54,9 @@ def slip_payout_amount(net_pay: float | None) -> float:
 	has cents. ``Payroll Entry.make_bank_entry`` books the consolidated JE from the
 	unrounded salary component totals, so the exact figure is also what reconciles.
 	"""
-	return flt(net_pay, PAYOUT_PRECISION)
+	# `or 0.0` is what flt() already does with None; spelling it out keeps the
+	# stub happy without casting away a genuinely optional field.
+	return flt(net_pay or 0.0, PAYOUT_PRECISION)
 
 
 class PayoutContext(frappe._dict):
