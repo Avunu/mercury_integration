@@ -23,14 +23,10 @@
   "events_webhook_column",
   "events_cursor",
   "events_last_polled_at",
-  "category_sync_section",
-  "enable_category_sync",
+  "gl_codes_section",
   "sync_income_accounts",
+  "gl_codes_column",
   "sync_expense_accounts",
-  "category_sync_column",
-  "category_delete_policy",
-  "writeback_enabled",
-  "writeback_note",
   "auto_journal_section",
   "enable_auto_journal",
   "require_attachment",
@@ -175,56 +171,26 @@
    "read_only": 1
   },
   {
-   "fieldname": "category_sync_section",
+   "description": "Mercury GL Codes map to ERP accounts by exact <b>Account Name</b>. They are read-only over the API — use <b>Mercury → Export GL Codes</b> and upload the CSV at app.mercury.com/accounting/mapping/gl-codes.",
+   "fieldname": "gl_codes_section",
    "fieldtype": "Section Break",
-   "label": "Category (GL Code) Sync"
-  },
-  {
-   "default": "0",
-   "fieldname": "enable_category_sync",
-   "fieldtype": "Check",
-   "label": "Enable Category Sync"
+   "label": "GL Codes"
   },
   {
    "default": "1",
-   "depends_on": "eval:doc.enable_category_sync",
    "fieldname": "sync_income_accounts",
    "fieldtype": "Check",
-   "label": "Sync Income Accounts"
+   "label": "Export Income Accounts"
   },
   {
-   "default": "1",
-   "depends_on": "eval:doc.enable_category_sync",
-   "fieldname": "sync_expense_accounts",
-   "fieldtype": "Check",
-   "label": "Sync Expense Accounts"
-  },
-  {
-   "fieldname": "category_sync_column",
+   "fieldname": "gl_codes_column",
    "fieldtype": "Column Break"
   },
   {
-   "default": "Never Delete",
-   "depends_on": "eval:doc.enable_category_sync",
-   "fieldname": "category_delete_policy",
-   "fieldtype": "Select",
-   "label": "Category Delete Policy",
-   "options": "Never Delete\nDelete in Mercury"
-  },
-  {
-   "default": "0",
-   "description": "Push the reconciled GL account back onto the Mercury transaction as its category.",
-   "fieldname": "writeback_enabled",
-   "fieldtype": "Check",
-   "label": "Enable GL Writeback"
-  },
-  {
    "default": "1",
-   "depends_on": "eval:doc.writeback_enabled",
-   "description": "Include an \"ERP: {voucher}\" note on the Mercury transaction.",
-   "fieldname": "writeback_note",
+   "fieldname": "sync_expense_accounts",
    "fieldtype": "Check",
-   "label": "Writeback Voucher Note"
+   "label": "Export Expense Accounts"
   },
   {
    "fieldname": "auto_journal_section",

@@ -27,11 +27,7 @@ frappe.ui.form.on("Mercury Settings", {
 			() => frm.call("register_webhook").then(() => frm.reload_doc()),
 			__("Mercury"),
 		);
-		frm.add_custom_button(
-			__("Sync Categories"),
-			() => frm.call("sync_categories_now"),
-			__("Mercury"),
-		);
+		frm.add_custom_button(__("Export GL Codes"), () => export_gl_codes(), __("Mercury"));
 		frm.add_custom_button(
 			__("Replay Events"),
 			() => {
@@ -45,3 +41,40 @@ frappe.ui.form.on("Mercury Settings", {
 		);
 	},
 });
+
+const GL_CODE_UPLOAD_URL = "https://app.mercury.com/accounting/mapping/gl-codes";
+
+// Unlike every other button here, this one cannot use frm.call: the response is a
+// CSV attachment, not JSON. Preview first so we can warn about skipped accounts,
+// which the download response has no way to carry.
+function export_gl_codes() {
+	frappe.call("mercury_integration.sync.gl_codes.preview_gl_codes").then(({ message }) => {
+		if (!message) {
+			return;
+		}
+		if (message.rejected.length) {
+			const items = message.rejected
+				.map((name) => `<li>${frappe.utils.escape_html(name)}</li>`)
+				.join("");
+			frappe.msgprint({
+				title: __("Some accounts cannot be exported"),
+				indicator: "orange",
+				message:
+					__(
+						"These account names are shared by more than one account, or contain a comma, quote, or line break, so they cannot match a Mercury GL code verbatim. Rename them to include them:",
+					) + `<ul>${items}</ul>`,
+			});
+		}
+		if (!message.count) {
+			frappe.msgprint(__("No accounts are eligible for export."));
+			return;
+		}
+		open_url_post("/api/method/mercury_integration.sync.gl_codes.export_gl_codes", {});
+		frappe.show_alert({
+			message: __("Upload the CSV at {0}", [
+				`<a href="${GL_CODE_UPLOAD_URL}" target="_blank">app.mercury.com</a>`,
+			]),
+			indicator: "green",
+		});
+	});
+}

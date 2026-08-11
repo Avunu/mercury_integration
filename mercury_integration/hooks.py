@@ -14,14 +14,7 @@ required_apps = ["frappe", "erpnext", "payments", "hrms"]
 export_python_type_annotations = True
 
 doc_events = {
-	"Account": {
-		"after_insert": "mercury_integration.sync.categories.account_after_insert",
-		"on_update": "mercury_integration.sync.categories.account_on_update",
-		"after_rename": "mercury_integration.sync.categories.account_after_rename",
-		"on_trash": "mercury_integration.sync.categories.account_on_trash",
-	},
 	"Bank Transaction": {
-		"on_update_after_submit": "mercury_integration.sync.writeback.on_bank_transaction_update_after_submit",
 		"on_submit": [
 			"mercury_integration.ar.funding.process_ar_funding_transaction",
 			"mercury_integration.payouts.reconcile.reconcile_payout_bank_transaction",
@@ -54,9 +47,6 @@ scheduler_events = {
 		"mercury_integration.ar.invoices.send_overdue_reminders",
 		"mercury_integration.payouts.recipients.sync_recipients",
 		"mercury_integration.payouts.reconcile.reconcile_pending_payouts",
-	],
-	"daily_long": [
-		"mercury_integration.tasks.reconcile_categories",
 	],
 }
 

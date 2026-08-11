@@ -3,7 +3,7 @@ For license information, please see license.txt-->
 
 # Mercury Integration
 
-Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payroll & vendor ACH payouts, bank transaction sync + reconciliation, Chart of Accounts ↔ Mercury category (GL code) sync, automatic journal entries, and transaction attachment import.
+Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payroll & vendor ACH payouts, bank transaction sync + reconciliation, Chart of Accounts ↔ Mercury GL Code mapping, automatic journal entries, and transaction attachment import.
 
 ## Architecture
 
@@ -17,7 +17,6 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
     | Bank Transaction | (core transaction_id) | Mercury transaction UUID = dedup key |
     | Customer | mercury_customer_id | AR customer mapping |
     | Payment Request | mercury_invoice_id, reminder fields | AR invoice anchor; pay URL in core payment_url |
-    | Account | mercury_category_id | CoA ↔ category mapping |
     | Employee / Supplier | mercury_recipient_id/_status, mercury_invite_id | recipient onboarding via invites (no bank PII in ERP) |
     | Salary Slip / Payment Entry | mercury_transaction_id, mercury_payment_status, mercury_approval_request_id | per-payout state |
     
@@ -32,8 +31,9 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 2.  **Sync Accounts** button → creates the `Mercury` Bank and per-account Bank Accounts (`mercury_account_id` set, GL accounts under your Bank group).
 3.  **Register Webhook** button (production only) → stores endpoint id + signing secret, sends a verification event.
 4.  **Backfill Transactions** button → windowed import; enable _Automatic Transaction Sync_ for the hourly job.
-5.  Category sync / auto-journal / AR gateway / payouts each have their own enable flags and sections in Mercury Settings.
-6.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them.
+5.  **Export GL Codes** button → downloads a bare single-column CSV (no header) of eligible account names; upload it at [app.mercury.com/accounting/mapping/gl-codes](https://app.mercury.com/accounting/mapping/gl-codes). GL Codes are read-only over the API, so this publish step is manual and must be repeated after renaming or adding accounts.
+6.  Auto-journal / AR gateway / payouts each have their own enable flags and sections in Mercury Settings.
+7.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them.
     
     -   **Per record** — *Mercury → Match Mercury Contact* on the Employee/Supplier form opens a searchable picker of Mercury contacts that aren't linked to any other record; ★ flags a likely match (same email, else same name) and it is preselected when unambiguous.
     -   **In bulk** — match on email then name, writing `mercury_recipient_id` only where the pairing is 1:1 in both directions (duplicates are reported, never guessed):
@@ -51,8 +51,8 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 
 ### Token guidance
 
--   Read-only token: sync, categories, AR polling.
--   `PATCH /transaction` (GL writeback) and AR invoice creation need a read-write or custom-scoped token.
+-   Read-only token: bank sync, auto-journal, AR polling.
+-   AR invoice creation needs a read-write or custom-scoped token.
 -   **Direct Send** payout mode needs a read-write token + this server's static egress IP whitelisted in Mercury. **Request Approval** mode (default) needs no IP whitelist but a second Mercury user must approve each payment in-app.
 
 ## Known constraints

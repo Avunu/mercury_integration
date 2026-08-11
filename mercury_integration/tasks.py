@@ -41,13 +41,3 @@ def check_webhook_health() -> None:
 	from mercury_integration.sync.events import check_webhook_health as _check
 
 	_check()
-
-
-def reconcile_categories() -> None:
-	"""daily_long: CoA ↔ Mercury category reconciliation sweep."""
-	settings = _settings()
-	if not (settings.enabled and settings.enable_category_sync):
-		return
-	from mercury_integration.sync.categories import reconcile_categories as _reconcile
-
-	_reconcile()

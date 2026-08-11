@@ -1,15 +1,22 @@
 # Copyright (c) 2026, Avunu LLC and contributors
 # For license information, please see license.txt
 
-"""Auto Journal Entries + attachment import for categorized Mercury transactions.
+"""Auto Journal Entries + attachment import for GL-coded Mercury transactions.
 
-When a Mercury transaction is categorized (in Mercury or via reconciliation
-writeback from another source) AND carries a receipt/bill attachment, this
-module books a two-leg Journal Entry against the mapped GL account, imports
-the attachment(s) onto both the Journal Entry and the Bank Transaction, and
-reconciles — all through the core primitive ``create_journal_entry_bts``
-(bank_reconciliation_tool.py:154), which inserts, submits, and reconciles with
-``is_new_voucher=True`` so a stock unreconcile cancels the JE cleanly.
+When a Mercury transaction carries a GL Code (and, by default, a receipt), this
+module books a Journal Entry against the mapped GL account(s), imports the
+attachment(s) onto both the Journal Entry and the Bank Transaction, and
+reconciles.
+
+Two booking paths, both of which insert, submit, and reconcile with
+``is_new_voucher=True`` so a stock unreconcile cancels the JE cleanly:
+
+* one allocation → ``create_journal_entry_bts`` (bank_reconciliation_tool.py:154),
+  which synthesizes the bank leg itself and handles multi-currency;
+* several allocations (a Mercury split) → ``create_bank_entry_and_reconcile``
+  (bank_reconciliation_tool.py:677), which takes an arbitrary ``entries`` list —
+  so we supply every GL leg *plus* the bank leg. USD only; that primitive carries
+  an explicit ``# TODO: Multi currency support``.
 
 Idempotency: a submitted Journal Entry with ``cheque_no == <mercury txn id>``
 (GoCardless payout-journal precedent).
@@ -17,33 +24,24 @@ Idempotency: a submitted Journal Entry with ``cheque_no == <mercury txn id>``
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import frappe
 import requests
 
 from mercury_integration.sync.client_factory import get_client, get_settings
+from mercury_integration.sync.gl_codes import Leg, resolve_legs
 from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
 	from datetime import datetime
 
 	from mercury_integration.client.models import MercuryTransaction
+	from mercury_integration.mercury_integration.doctype.mercury_settings.mercury_settings import (
+		MercurySettings,
+	)
 
 MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
-ROOT_TYPE_SETTING = {"Expense": "auto_journal_for_expense", "Income": "auto_journal_for_income"}
-
-
-def _mapped_account(category_id: str) -> frappe._dict | None:
-	return cast(
-		"frappe._dict | None",
-		frappe.db.get_value(
-			"Account",
-			{"mercury_category_id": category_id},
-			["name", "root_type", "disabled"],
-			as_dict=True,
-		),
-	)
 
 
 def _bank_transaction_untouched(name: str) -> bool:
@@ -117,23 +115,82 @@ def import_attachments(transaction_id: str, bank_transaction: str, journal_entry
 	return imported
 
 
-def _create_journal(bank_transaction: str, txn: MercuryTransaction, account: str, settings) -> str | None:
+def _book_single(bank_transaction: str, txn: MercuryTransaction, leg: Leg, posting_date: str) -> None:
 	from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
 		create_journal_entry_bts,
 	)
 
+	create_journal_entry_bts(
+		bank_transaction_name=bank_transaction,
+		reference_number=txn.id,
+		reference_date=posting_date,
+		posting_date=posting_date,
+		entry_type="Journal Entry",
+		second_account=leg.account,
+	)
+
+
+def _book_split(
+	bank_transaction: str,
+	txn: MercuryTransaction,
+	legs: list[Leg],
+	posting_date: str,
+	settings: MercurySettings,
+) -> None:
+	"""Book a Mercury split as one multi-leg JE: a leg per allocation, plus the bank leg."""
+	from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
+		create_bank_entry_and_reconcile,
+	)
+
+	bank_account = cast("str", frappe.db.get_value("Bank Transaction", bank_transaction, "bank_account"))
+	bank_gl_account = cast("str", frappe.get_cached_value("Bank Account", bank_account, "account"))
+	cost_center = cast("str | None", settings.default_cost_center)
+
+	entries: list[dict[str, Any]] = []
+	for leg in legs:
+		# Mercury signs negative = money out, so an outflow debits its GL leg.
+		amount = float(leg.amount)
+		entry: dict[str, Any] = {
+			"account": leg.account,
+			"debit": abs(amount) if amount < 0 else 0.0,
+			"credit": amount if amount > 0 else 0.0,
+		}
+		if cost_center:
+			entry["cost_center"] = cost_center
+		entries.append(entry)
+
+	total = float(txn.amount)
+	entries.append(
+		{
+			"account": bank_gl_account,
+			"debit": total if total > 0 else 0.0,
+			"credit": abs(total) if total < 0 else 0.0,
+			"bank_account": bank_account,
+		}
+	)
+
+	create_bank_entry_and_reconcile(
+		bank_transaction_name=bank_transaction,
+		cheque_date=posting_date,
+		posting_date=posting_date,
+		cheque_no=txn.id,
+		entries=entries,
+		voucher_type="Journal Entry",
+	)
+
+
+def _create_journal(
+	bank_transaction: str, txn: MercuryTransaction, legs: list[Leg], settings: MercurySettings
+) -> str | None:
 	posting_date = cast("datetime", txn.posted_at or txn.created_at).date().isoformat()
+	accounts = ", ".join(leg.account for leg in legs)
 	user = cast(str, frappe.session.user)
 	frappe.set_user("Administrator")
 	try:
-		create_journal_entry_bts(
-			bank_transaction_name=bank_transaction,
-			reference_number=txn.id,
-			reference_date=posting_date,
-			posting_date=posting_date,
-			entry_type="Journal Entry",
-			second_account=account,
-		)
+		if len(legs) == 1:
+			_book_single(bank_transaction, txn, legs[0], posting_date)
+		else:
+			_book_split(bank_transaction, txn, legs, posting_date, settings)
 	except Exception:
 		frappe.log_error(
 			title=f"Mercury auto-journal failed for {bank_transaction}",
@@ -142,8 +199,8 @@ def _create_journal(bank_transaction: str, txn: MercuryTransaction, account: str
 		)
 		notify_failure(
 			f"Auto journal entry failed for {bank_transaction}",
-			f"Mercury transaction <b>{txn.id}</b> is categorized but the automatic"
-			f" Journal Entry against <b>{account}</b> could not be created."
+			f"Mercury transaction <b>{txn.id}</b> is GL-coded but the automatic"
+			f" Journal Entry against <b>{accounts}</b> could not be created."
 			" See the error log.",
 			reference_doctype="Bank Transaction",
 			reference_name=bank_transaction,
@@ -160,31 +217,51 @@ def _create_journal(bank_transaction: str, txn: MercuryTransaction, account: str
 	return journal_entry
 
 
+def plan_journal(
+	bank_transaction: str, txn: MercuryTransaction, settings: MercurySettings
+) -> tuple[list[Leg], str | None]:
+	"""Every auto-journal gate, without side effects.
+
+	Returns ``(legs, reason)``. A ``reason`` is a misconfiguration worth alerting on;
+	empty legs with no reason means the transaction simply isn't ready to book. The
+	already-booked and already-reconciled checks come first so re-runs stay quiet.
+	"""
+	if not (settings.enabled and settings.enable_auto_journal):
+		return [], None
+	if (txn.kind or "") == "internalTransfer":
+		return [], None  # handled by sync.transfers (Bank Entry between the two accounts)
+	if not txn.is_posted:
+		return [], None
+	if settings.require_attachment and not txn.attachments:
+		return [], None
+	if not _bank_transaction_untouched(bank_transaction):
+		return [], None
+	if frappe.db.exists("Journal Entry", {"cheque_no": txn.id, "docstatus": 1}):
+		return [], None
+
+	legs, reason = resolve_legs(txn, settings)
+	if reason or not legs:
+		return [], reason
+
+	# A zero max amount means "no cap", the standard Frappe idiom for an unset limit.
+	max_amount = float(settings.auto_journal_max_amount or 0)
+	if max_amount and abs(float(txn.amount)) > max_amount:
+		return [], None
+	return legs, None
+
+
 def evaluate(bank_transaction: str, txn: MercuryTransaction) -> str | None:
 	"""Gate-check and (when clear) book + reconcile the auto Journal Entry."""
 	settings = get_settings()
-	if not (settings.enabled and settings.enable_auto_journal):
+	legs, reason = plan_journal(bank_transaction, txn, settings)
+	if reason:
+		notify_failure(
+			f"Auto journal skipped for {bank_transaction}",
+			f"Mercury transaction <b>{txn.id}</b> is GL-coded but could not be auto-journaled: {reason}.",
+			reference_doctype="Bank Transaction",
+			reference_name=bank_transaction,
+		)
 		return None
-	if (txn.kind or "") == "internalTransfer":
-		return None  # handled by sync.transfers (Bank Entry between the two accounts)
-	if not txn.is_posted or not txn.category_data:
+	if not legs:
 		return None
-	if settings.require_attachment and not txn.attachments:
-		return None
-
-	mapped = _mapped_account(txn.category_data.id)
-	if not mapped or mapped.disabled:
-		return None
-	root_gate = ROOT_TYPE_SETTING.get(str(mapped.root_type))
-	if not root_gate or not settings.get(root_gate):
-		return None
-
-	amount = abs(float(txn.amount))
-	if settings.auto_journal_max_amount and amount > float(settings.auto_journal_max_amount):
-		return None
-	if not _bank_transaction_untouched(bank_transaction):
-		return None
-	if frappe.db.exists("Journal Entry", {"cheque_no": txn.id, "docstatus": 1}):
-		return None
-
-	return _create_journal(bank_transaction, txn, str(mapped.name), settings)
+	return _create_journal(bank_transaction, txn, legs, settings)

@@ -40,14 +40,12 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		auto_reconcile_transfers: DF.Check
 		automatic_sync: DF.Check
 		card_fees_account: DF.Link | None
-		category_delete_policy: DF.Literal["Never Delete", "Delete in Mercury"]
 		company: DF.Link | None
 		create_pending_transactions: DF.Check
 		credit_card_enabled: DF.Check
 		default_cost_center: DF.Link | None
 		enable_ar_gateway: DF.Check
 		enable_auto_journal: DF.Check
-		enable_category_sync: DF.Check
 		enable_payouts: DF.Check
 		enabled: DF.Check
 		events_cursor: DF.Data | None
@@ -68,8 +66,6 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		webhook_endpoint_id: DF.Data | None
 		webhook_secret: DF.Password | None
 		webhook_status: DF.Data | None
-		writeback_enabled: DF.Check
-		writeback_note: DF.Check
 	# end: auto-generated types
 
 	def validate(self) -> None:
@@ -115,13 +111,6 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 
 		self._ensure_write_permission()
 		return register_webhook_endpoint()
-
-	@frappe.whitelist()
-	def sync_categories_now(self) -> None:
-		from mercury_integration.sync.categories import enqueue_full_category_sync
-
-		self._ensure_write_permission()
-		enqueue_full_category_sync()
 
 	@frappe.whitelist()
 	def replay_events(self, hours: int = 24) -> None:
