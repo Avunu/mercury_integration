@@ -43,6 +43,8 @@ if TYPE_CHECKING:
 # A GL code must survive a bare, unquoted, single-column CSV to still match verbatim.
 UNEXPORTABLE_CHARS = frozenset(',"\r\n')
 ROOT_TYPE_SETTING = {"Expense": "auto_journal_for_expense", "Income": "auto_journal_for_income"}
+# Everything a bank transaction can post against, minus Assets (the bank side itself).
+EXPORTABLE_ROOT_TYPES = ("Liability", "Income", "Expense", "Equity")
 EXPORT_ROLES = cast("tuple[str]", ("System Manager", "Accounts Manager"))
 
 
@@ -144,23 +146,18 @@ def resolve_legs(txn: MercuryTransaction, settings: MercurySettings) -> tuple[li
 # ------------------------------------------------------------------------ export
 
 
-def _export_root_types(settings: MercurySettings) -> list[str]:
-	roots: list[str] = []
-	if settings.sync_income_accounts:
-		roots.append("Income")
-	if settings.sync_expense_accounts:
-		roots.append("Expense")
-	return roots
-
-
 def exportable_account_names(settings: MercurySettings) -> tuple[list[str], list[str]]:
 	"""``(codes, rejected)`` — ``codes`` are ready to upload to Mercury verbatim.
+
+	Every non-Asset ledger account in the company is offered as a GL code. Assets are
+	excluded because the bank, receivable, and fixed-asset accounts are either the
+	other side of the entry or handled outside this flow. Listing an explicit root
+	type set rather than ``!= "Asset"`` also drops accounts with a blank root type.
 
 	A name is rejected when it cannot survive the bare CSV, or when it is shared by
 	more than one account (which ``resolve_legs`` would refuse as ambiguous anyway).
 	"""
-	roots = _export_root_types(settings)
-	if not roots or not settings.company:
+	if not settings.company:
 		return [], []
 
 	names = cast(
@@ -171,7 +168,7 @@ def exportable_account_names(settings: MercurySettings) -> tuple[list[str], list
 				"is_group": 0,
 				"disabled": 0,
 				"company": settings.company,
-				"root_type": ("in", roots),
+				"root_type": ("in", EXPORTABLE_ROOT_TYPES),
 			},
 			pluck="account_name",
 			order_by="account_name asc",

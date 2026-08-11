@@ -31,7 +31,7 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 2.  **Sync Accounts** button → creates the `Mercury` Bank and per-account Bank Accounts (`mercury_account_id` set, GL accounts under your Bank group).
 3.  **Register Webhook** button (production only) → stores endpoint id + signing secret, sends a verification event.
 4.  **Backfill Transactions** button → windowed import; enable _Automatic Transaction Sync_ for the hourly job.
-5.  **Export GL Codes** button → downloads a bare single-column CSV (no header) of eligible account names; upload it at [app.mercury.com/accounting/mapping/gl-codes](https://app.mercury.com/accounting/mapping/gl-codes). GL Codes are read-only over the API, so this publish step is manual and must be repeated after renaming or adding accounts.
+5.  **Export GL Codes** button → downloads a bare single-column CSV (no header) of every non-Asset ledger account name and opens the upload page at [app.mercury.com/accounting/mapping/gl-codes](https://app.mercury.com/accounting/mapping/gl-codes). GL Codes are read-only over the API, so this publish step is manual and must be repeated after renaming or adding accounts. Names shared by two accounts, or containing a comma/quote/newline, are skipped and listed — they could never match verbatim.
 6.  Auto-journal / AR gateway / payouts each have their own enable flags and sections in Mercury Settings.
 7.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them.
     

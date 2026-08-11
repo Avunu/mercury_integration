@@ -24,9 +24,6 @@
   "events_cursor",
   "events_last_polled_at",
   "gl_codes_section",
-  "sync_income_accounts",
-  "gl_codes_column",
-  "sync_expense_accounts",
   "auto_journal_section",
   "enable_auto_journal",
   "require_attachment",
@@ -171,26 +168,10 @@
    "read_only": 1
   },
   {
-   "description": "Mercury GL Codes map to ERP accounts by exact <b>Account Name</b>. They are read-only over the API — use <b>Mercury → Export GL Codes</b> and upload the CSV at app.mercury.com/accounting/mapping/gl-codes.",
+   "description": "Mercury GL Codes map to ERP accounts by exact <b>Account Name</b>. They are read-only over the API — use <b>Mercury → Export GL Codes</b> to download every non-Asset ledger account and upload the CSV at app.mercury.com/accounting/mapping/gl-codes.",
    "fieldname": "gl_codes_section",
    "fieldtype": "Section Break",
    "label": "GL Codes"
-  },
-  {
-   "default": "1",
-   "fieldname": "sync_income_accounts",
-   "fieldtype": "Check",
-   "label": "Export Income Accounts"
-  },
-  {
-   "fieldname": "gl_codes_column",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "fieldname": "sync_expense_accounts",
-   "fieldtype": "Check",
-   "label": "Export Expense Accounts"
   },
   {
    "fieldname": "auto_journal_section",

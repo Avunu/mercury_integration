@@ -57,8 +57,6 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		require_attachment: DF.Check
 		sandbox_api_token: DF.Password | None
 		send_overdue_reminders: DF.Check
-		sync_expense_accounts: DF.Check
-		sync_income_accounts: DF.Check
 		sync_start_date: DF.Date | None
 		use_real_account_number: DF.Check
 		use_sandbox: DF.Check
