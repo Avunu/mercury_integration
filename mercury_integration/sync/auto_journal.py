@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import frappe
 import requests
+from erpnext import get_default_cost_center
 
 from mercury_integration.sync.client_factory import get_client, get_settings
 from mercury_integration.sync.gl_codes import Leg, resolve_legs
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 	)
 
 MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024
+SAVEPOINT = "mercury_auto_journal"
 
 
 def _bank_transaction_untouched(name: str) -> bool:
@@ -120,6 +122,21 @@ def import_attachments(transaction_id: str, bank_transaction: str, journal_entry
 	return imported
 
 
+def _cost_center(company: str, settings: MercurySettings) -> str | None:
+	"""A cost center that can actually be posted to, or ``None``.
+
+	Group cost centers are rejected outright by core (gl_entry.py:269), and a
+	company's default *is* the group root unless someone changed it — so the
+	fallback has to be screened, not just the configured override. Returning None
+	is safe: cost center is optional at the GL level (gl_entry.py:257).
+	"""
+	candidates = (cast("str | None", settings.default_cost_center), get_default_cost_center(company))
+	for candidate in candidates:
+		if candidate and not frappe.get_cached_value("Cost Center", candidate, "is_group"):
+			return str(candidate)
+	return None
+
+
 def _leg_entry(leg: Leg, cost_center: str | None) -> dict[str, Any]:
 	# Mercury signs negative = money out, so an outflow debits its GL leg.
 	amount = float(leg.amount)
@@ -153,7 +170,6 @@ def _book(
 	Reconciliation still goes through core ``reconcile_vouchers`` with
 	``is_new_voucher=True``, so a stock unreconcile cancels the JE.
 	"""
-	from erpnext import get_default_cost_center
 	from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
 		reconcile_vouchers,
 	)
@@ -170,7 +186,7 @@ def _book(
 	bank_account = str(transaction.bank_account)
 	bank_gl_account = cast("str", frappe.get_cached_value("Bank Account", bank_account, "account"))
 	company = cast("str", frappe.get_cached_value("Account", bank_gl_account, "company"))
-	cost_center = cast("str | None", settings.default_cost_center) or get_default_cost_center(company)
+	cost_center = _cost_center(company, settings)
 
 	journal_entry = cast("JournalEntry", frappe.new_doc("Journal Entry"))
 	journal_entry.update(
@@ -222,9 +238,14 @@ def _create_journal(
 	accounts = ", ".join(leg.account for leg in legs)
 	user = cast(str, frappe.session.user)
 	frappe.set_user("Administrator")
+	# The JE is inserted before it is submitted, and validation that only runs at
+	# submit (cost centers, dimensions) would otherwise strand a draft behind the
+	# alert. Scoped to this booking, so the caller's Bank Transaction work survives.
+	frappe.db.savepoint(SAVEPOINT)
 	try:
 		_book(bank_transaction, txn, legs, posting_date, settings)
 	except Exception:
+		frappe.db.rollback(save_point=SAVEPOINT)
 		frappe.log_error(
 			title=f"Mercury auto-journal failed for {bank_transaction}",
 			reference_doctype="Bank Transaction",

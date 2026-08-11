@@ -2,6 +2,13 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on("Mercury Settings", {
+	setup(frm) {
+		// A group cost center is rejected outright on any transaction, so never
+		// let one be picked here.
+		frm.set_query("default_cost_center", () => ({
+			filters: { is_group: 0, company: frm.doc.company },
+		}));
+	},
 	refresh(frm) {
 		if (!frm.doc.enabled) {
 			return;
