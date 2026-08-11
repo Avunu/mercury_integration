@@ -8,15 +8,17 @@ module books a Journal Entry against the mapped GL account(s), imports the
 attachment(s) onto both the Journal Entry and the Bank Transaction, and
 reconciles.
 
-Two booking paths, both of which insert, submit, and reconcile with
-``is_new_voucher=True`` so a stock unreconcile cancels the JE cleanly:
+One booking path handles both a single allocation and a Mercury split: a JE leg
+per allocation plus the bank leg, reconciled through core ``reconcile_vouchers``
+with ``is_new_voucher=True`` so a stock unreconcile cancels the JE cleanly.
 
-* one allocation → ``create_journal_entry_bts`` (bank_reconciliation_tool.py:154),
-  which synthesizes the bank leg itself and handles multi-currency;
-* several allocations (a Mercury split) → ``create_bank_entry_and_reconcile``
-  (bank_reconciliation_tool.py:677), which takes an arbitrary ``entries`` list —
-  so we supply every GL leg *plus* the bank leg. USD only; that primitive carries
-  an explicit ``# TODO: Multi currency support``.
+The JE is assembled here rather than by ``create_journal_entry_bts`` /
+``create_bank_entry_and_reconcile`` because neither carries a party through to the
+row, and the former hard-throws on a Receivable/Payable second account
+(bank_reconciliation_tool.py:174). Bank-side entries against party accounts are
+ordinary — a payroll run debits Payroll Payable — so the party resolved from the
+Mercury counterparty has to reach the JE. USD only: amounts are posted in account
+currency with no exchange-rate handling.
 
 Idempotency: a submitted Journal Entry with ``cheque_no == <mercury txn id>``
 (GoCardless payout-journal precedent).
@@ -24,6 +26,7 @@ Idempotency: a submitted Journal Entry with ``cheque_no == <mercury txn id>``
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, cast
 
 import frappe
@@ -35,6 +38,8 @@ from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
 	from datetime import datetime
+
+	from erpnext.accounts.doctype.journal_entry.journal_entry import JournalEntry
 
 	from mercury_integration.client.models import MercuryTransaction
 	from mercury_integration.mercury_integration.doctype.mercury_settings.mercury_settings import (
@@ -115,67 +120,98 @@ def import_attachments(transaction_id: str, bank_transaction: str, journal_entry
 	return imported
 
 
-def _book_single(bank_transaction: str, txn: MercuryTransaction, leg: Leg, posting_date: str) -> None:
-	from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
-		create_journal_entry_bts,
-	)
+def _leg_entry(leg: Leg, cost_center: str | None) -> dict[str, Any]:
+	# Mercury signs negative = money out, so an outflow debits its GL leg.
+	amount = float(leg.amount)
+	entry: dict[str, Any] = {
+		"account": leg.account,
+		"debit_in_account_currency": abs(amount) if amount < 0 else 0.0,
+		"credit_in_account_currency": amount if amount > 0 else 0.0,
+	}
+	if leg.party_type and leg.party:
+		entry["party_type"] = leg.party_type
+		entry["party"] = leg.party
+	if cost_center and frappe.get_cached_value("Account", leg.account, "report_type") == "Profit and Loss":
+		entry["cost_center"] = cost_center
+	return entry
 
-	create_journal_entry_bts(
-		bank_transaction_name=bank_transaction,
-		reference_number=txn.id,
-		reference_date=posting_date,
-		posting_date=posting_date,
-		entry_type="Journal Entry",
-		second_account=leg.account,
-	)
 
-
-def _book_split(
+def _book(
 	bank_transaction: str,
 	txn: MercuryTransaction,
 	legs: list[Leg],
 	posting_date: str,
 	settings: MercurySettings,
 ) -> None:
-	"""Book a Mercury split as one multi-leg JE: a leg per allocation, plus the bank leg."""
+	"""Build the Journal Entry (a leg per allocation, plus the bank leg) and reconcile it.
+
+	Hand-built rather than delegated to ``create_journal_entry_bts`` /
+	``create_bank_entry_and_reconcile``: neither passes a party through, and
+	``create_journal_entry_bts`` hard-throws on a Receivable/Payable second account
+	(bank_reconciliation_tool.py:174). Clearing an aggregate liability like Payroll
+	Payable is an ordinary bank-side entry, so the party has to survive to the JE row.
+	Reconciliation still goes through core ``reconcile_vouchers`` with
+	``is_new_voucher=True``, so a stock unreconcile cancels the JE.
+	"""
+	from erpnext import get_default_cost_center
 	from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
-		create_bank_entry_and_reconcile,
+		reconcile_vouchers,
 	)
 
-	bank_account = cast("str", frappe.db.get_value("Bank Transaction", bank_transaction, "bank_account"))
+	transaction = cast(
+		"frappe._dict",
+		frappe.db.get_value(
+			"Bank Transaction",
+			bank_transaction,
+			["bank_account", "deposit", "withdrawal"],
+			as_dict=True,
+		),
+	)
+	bank_account = str(transaction.bank_account)
 	bank_gl_account = cast("str", frappe.get_cached_value("Bank Account", bank_account, "account"))
-	cost_center = cast("str | None", settings.default_cost_center)
+	company = cast("str", frappe.get_cached_value("Account", bank_gl_account, "company"))
+	cost_center = cast("str | None", settings.default_cost_center) or get_default_cost_center(company)
 
-	entries: list[dict[str, Any]] = []
-	for leg in legs:
-		# Mercury signs negative = money out, so an outflow debits its GL leg.
-		amount = float(leg.amount)
-		entry: dict[str, Any] = {
-			"account": leg.account,
-			"debit": abs(amount) if amount < 0 else 0.0,
-			"credit": amount if amount > 0 else 0.0,
+	journal_entry = cast("JournalEntry", frappe.new_doc("Journal Entry"))
+	journal_entry.update(
+		{
+			"voucher_type": "Journal Entry",
+			"company": company,
+			"posting_date": posting_date,
+			"cheque_date": posting_date,
+			"cheque_no": txn.id,
 		}
-		if cost_center:
-			entry["cost_center"] = cost_center
-		entries.append(entry)
+	)
+	for leg in legs:
+		journal_entry.append("accounts", _leg_entry(leg, cost_center))
 
 	total = float(txn.amount)
-	entries.append(
+	journal_entry.append(
+		"accounts",
 		{
 			"account": bank_gl_account,
-			"debit": total if total > 0 else 0.0,
-			"credit": abs(total) if total < 0 else 0.0,
 			"bank_account": bank_account,
-		}
+			"debit_in_account_currency": total if total > 0 else 0.0,
+			"credit_in_account_currency": abs(total) if total < 0 else 0.0,
+		},
 	)
 
-	create_bank_entry_and_reconcile(
-		bank_transaction_name=bank_transaction,
-		cheque_date=posting_date,
-		posting_date=posting_date,
-		cheque_no=txn.id,
-		entries=entries,
-		voucher_type="Journal Entry",
+	journal_entry.flags.ignore_permissions = True
+	journal_entry.insert()
+	journal_entry.submit()
+
+	reconcile_vouchers(
+		bank_transaction,
+		json.dumps(
+			[
+				{
+					"payment_doctype": "Journal Entry",
+					"payment_name": journal_entry.name,
+					"amount": float(transaction.deposit or 0) or float(transaction.withdrawal or 0),
+				}
+			]
+		),
+		is_new_voucher=True,
 	)
 
 
@@ -187,10 +223,7 @@ def _create_journal(
 	user = cast(str, frappe.session.user)
 	frappe.set_user("Administrator")
 	try:
-		if len(legs) == 1:
-			_book_single(bank_transaction, txn, legs[0], posting_date)
-		else:
-			_book_split(bank_transaction, txn, legs, posting_date, settings)
+		_book(bank_transaction, txn, legs, posting_date, settings)
 	except Exception:
 		frappe.log_error(
 			title=f"Mercury auto-journal failed for {bank_transaction}",

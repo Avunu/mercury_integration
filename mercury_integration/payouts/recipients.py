@@ -72,6 +72,21 @@ def get_recipient_id(party_type: str, party: str) -> str | None:
 	return recipient_id if recipient_id and status == "Active" else None
 
 
+def get_party_for_recipient(recipient_id: str) -> tuple[str, str] | None:
+	"""Inverse of :func:`get_recipient_id`: the ERP party a Mercury counterparty maps to.
+
+	Unlike the forward lookup this ignores ``mercury_recipient_status`` — a payee who
+	has since gone inactive is still the correct party on a historical transaction.
+	"""
+	if not recipient_id:
+		return None
+	for party_type in PARTY_TYPES:
+		party = cast("str | None", frappe.db.get_value(party_type, {"mercury_recipient_id": recipient_id}))
+		if party:
+			return party_type, str(party)
+	return None
+
+
 def _set_recipient_fields(party_type: str, party: str, values: dict) -> None:
 	frappe.db.set_value(party_type, party, cast("str", values), update_modified=False)
 

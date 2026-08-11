@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, cast
 import frappe
 from frappe.utils import escape_html
 
+from mercury_integration.payouts.recipients import get_party_for_recipient
 from mercury_integration.sync.client_factory import get_client, get_settings
 
 if TYPE_CHECKING:
@@ -42,9 +43,10 @@ if TYPE_CHECKING:
 
 # A GL code must survive a bare, unquoted, single-column CSV to still match verbatim.
 UNEXPORTABLE_CHARS = frozenset(',"\r\n')
-ROOT_TYPE_SETTING = {"Expense": "auto_journal_for_expense", "Income": "auto_journal_for_income"}
 # Everything a bank transaction can post against, minus Assets (the bank side itself).
 EXPORTABLE_ROOT_TYPES = ("Liability", "Income", "Expense", "Equity")
+# Core requires a party on these, and keeps the AP/AR subledger on it (journal_entry.py:597).
+PARTY_ACCOUNT_TYPES = ("Receivable", "Payable")
 EXPORT_ROLES = cast("tuple[str]", ("System Manager", "Accounts Manager"))
 
 
@@ -55,6 +57,8 @@ class Leg(NamedTuple):
 	account: str
 	root_type: str
 	amount: Decimal
+	party_type: str | None = None
+	party: str | None = None
 
 
 # ------------------------------------------------------------------ pure helpers
@@ -95,7 +99,7 @@ def accounts_for_gl_code(gl_code: str, company: str) -> list[frappe._dict]:
 		frappe.get_all(
 			"Account",
 			filters={"account_name": gl_code, "company": company, "is_group": 0, "disabled": 0},
-			fields=["name", "root_type"],
+			fields=["name", "root_type", "account_type"],
 		),
 	)
 
@@ -127,15 +131,31 @@ def resolve_legs(txn: MercuryTransaction, settings: MercurySettings) -> tuple[li
 
 		account = matches[0]
 		root_type = str(account.root_type)
-		gate = ROOT_TYPE_SETTING.get(root_type)
-		if not gate:
+		if root_type not in EXPORTABLE_ROOT_TYPES:
 			return (
 				[],
-				f"GL code <b>{code_html}</b> maps to a {root_type} account, which is not auto-journaled",
+				f"GL code <b>{code_html}</b> maps to a {root_type or 'root'} account,"
+				" which a bank transaction cannot post against",
 			)
-		if not settings.get(gate):
-			return [], f"GL code <b>{code_html}</b> maps to a {root_type} account, but {gate} is off"
-		legs.append(Leg(gl_code, str(account.name), root_type, amount))
+
+		party_type: str | None = None
+		party: str | None = None
+		if account.account_type in PARTY_ACCOUNT_TYPES:
+			# Clearing a Payable/Receivable balance (e.g. Payroll Payable on a payroll
+			# run) is ordinary, but core needs the party to keep the subledger straight.
+			# Mercury names the counterparty; the payouts recipient mapping resolves it.
+			resolved = get_party_for_recipient(str(txn.counterparty_id or ""))
+			if not resolved:
+				counterparty = escape_html(txn.counterparty_name or txn.counterparty_id or "unknown")
+				return (
+					[],
+					f"GL code <b>{code_html}</b> maps to a {account.account_type} account, which needs"
+					f" a party, but Mercury counterparty <b>{counterparty}</b> is not linked to any"
+					" Employee or Supplier",
+				)
+			party_type, party = resolved
+
+		legs.append(Leg(gl_code, str(account.name), root_type, amount, party_type, party))
 
 	if not allocations_balance(pairs, txn.amount):
 		coded = sum((pair[1] for pair in pairs), Decimal(0))

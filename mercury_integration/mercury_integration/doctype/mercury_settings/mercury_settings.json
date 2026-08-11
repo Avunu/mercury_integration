@@ -29,8 +29,6 @@
   "require_attachment",
   "auto_journal_max_amount",
   "auto_journal_column",
-  "auto_journal_for_expense",
-  "auto_journal_for_income",
   "auto_reconcile_transfers",
   "default_cost_center",
   "ar_gateway_section",
@@ -180,7 +178,7 @@
   },
   {
    "default": "0",
-   "description": "Automatically create and reconcile Journal Entries for Mercury transactions that are categorized (and have a receipt attached).",
+   "description": "Automatically create and reconcile Journal Entries for Mercury transactions that carry a GL Code (and a receipt). Books against any non-Asset account; Receivable/Payable codes resolve their party from the Mercury counterparty.",
    "fieldname": "enable_auto_journal",
    "fieldtype": "Check",
    "label": "Enable Auto Journal Entries"
@@ -202,20 +200,6 @@
   {
    "fieldname": "auto_journal_column",
    "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "depends_on": "eval:doc.enable_auto_journal",
-   "fieldname": "auto_journal_for_expense",
-   "fieldtype": "Check",
-   "label": "For Expense Accounts"
-  },
-  {
-   "default": "0",
-   "depends_on": "eval:doc.enable_auto_journal",
-   "fieldname": "auto_journal_for_income",
-   "fieldtype": "Check",
-   "label": "For Income Accounts"
   },
   {
    "default": "1",
