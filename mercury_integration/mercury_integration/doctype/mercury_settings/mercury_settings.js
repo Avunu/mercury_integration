@@ -70,11 +70,27 @@ function export_gl_codes() {
 			return;
 		}
 		open_url_post("/api/method/mercury_integration.sync.gl_codes.export_gl_codes", {});
+		open_gl_code_mapping(message.count);
+	});
+}
+
+// The tab is opened from a promise callback, outside the click's gesture stack, so
+// popup blockers routinely swallow it. Detect that and leave a clickable path.
+function open_gl_code_mapping(count) {
+	const tab = window.open(GL_CODE_UPLOAD_URL, "_blank", "noopener");
+	if (tab) {
 		frappe.show_alert({
-			message: __("Upload the CSV at {0}", [
-				`<a href="${GL_CODE_UPLOAD_URL}" target="_blank">app.mercury.com</a>`,
-			]),
+			message: __("Exported {0} GL codes — upload the CSV in the new tab.", [count]),
 			indicator: "green",
 		});
+		return;
+	}
+	frappe.msgprint({
+		title: __("Upload the GL codes"),
+		indicator: "green",
+		message: __("Exported {0} GL codes. Upload the CSV at {1}.", [
+			count,
+			`<a href="${GL_CODE_UPLOAD_URL}" target="_blank" rel="noopener">app.mercury.com</a>`,
+		]),
 	});
 }
