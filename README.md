@@ -30,7 +30,7 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 1.  **Mercury Settings**: set Company + API token (sandbox token + "Use Sandbox" for testing), Enable. Saving validates the token.
 2.  **Sync Accounts** button → creates the `Mercury` Bank and per-account Bank Accounts (`mercury_account_id` set, GL accounts under your Bank group).
 3.  **Register Webhook** button (production only) → stores endpoint id + signing secret, sends a verification event.
-4.  **Backfill Transactions** button → windowed import; enable _Automatic Transaction Sync_ for the hourly job.
+4.  **Backfill Transactions** button → windowed import; enable _Automatic Transaction Sync_ for the hourly job. Set _Auto Journal → Daily Backfill (Days)_ (default 90) so late GL coding is picked up — see below.
 5.  **Export GL Codes** button → downloads a bare single-column CSV (no header) of every non-Asset ledger account name and opens the upload page at [app.mercury.com/accounting/mapping/gl-codes](https://app.mercury.com/accounting/mapping/gl-codes). GL Codes are read-only over the API, so this publish step is manual and must be repeated after renaming or adding accounts. Names shared by two accounts, or containing a comma/quote/newline, are skipped and listed — they could never match verbatim.
 6.  Auto-journal / AR gateway / payouts each have their own enable flags and sections in Mercury Settings.
 7.  **Payees**: for people/vendors you already pay in mercury.com, adopt their existing recipient ids instead of re-inviting them.
@@ -57,6 +57,7 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
 
 ## Known constraints
 
+-   **GL coding fires no event**: Mercury's transaction update events cover `status`/`postedAt`/`amount`/`categoryData` only — nothing under `glAllocations`. The hourly sync re-reads just `SYNC_OVERLAP_DAYS` (3) past `last_integration_date`, so a transaction coded more than ~3 days after it posts is invisible to both live channels. The daily `tasks.backfill_auto_journals` sweep closes that gap: it re-runs the auto-journal gate over every submitted-but-unreconciled Mercury Bank Transaction within _Daily Backfill (Days)_, books what became codeable, and mails one digest of anything GL-coded but unbookable. Zero disables it. One API call per unreconciled transaction, so keep the window to what you actually still code. On demand: `bench execute mercury_integration.sync.gl_codes.reevaluate_unreconciled --kwargs "{'dry_run': False}"` (dry-run by default, unbounded unless given `from_date`). **The JE posts to the original transaction date**, so sweeping a long backlog can land entries in a closed period.
 -   **No ACH pulls**: Mercury AR is payer-initiated (pay-page link + overdue reminders) — unlike GoCardless mandate auto-charges.
 -   **USD only** for the AR gateway.
 -   **24h duplicate guard**: Mercury hard-blocks same recipient+account+amount within 24h regardless of idempotency key (surfaced in the payroll preview).

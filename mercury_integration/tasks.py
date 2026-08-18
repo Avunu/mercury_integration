@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 import frappe
+from frappe.utils import cint
 
 if TYPE_CHECKING:
 	from mercury_integration.mercury_integration.doctype.mercury_settings.mercury_settings import (
@@ -27,6 +28,22 @@ def sync_all_accounts() -> None:
 	from mercury_integration.sync.transactions import sync_all_accounts as _sync
 
 	_sync()
+
+
+def backfill_auto_journals() -> None:
+	"""daily: re-run the auto-journal gate over unreconciled transactions.
+
+	Mercury fires no event when a transaction is GL-coded, so a transaction coded
+	after the sync window closed would otherwise never be booked. Zero days is the
+	off switch.
+	"""
+	settings = _settings()
+	days = cint(settings.auto_journal_backfill_days)
+	if not (settings.enabled and settings.enable_auto_journal and days):
+		return
+	from mercury_integration.sync.gl_codes import enqueue_reevaluate
+
+	enqueue_reevaluate(days)
 
 
 def poll_events() -> None:

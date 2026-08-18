@@ -5,3 +5,4 @@
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 mercury_integration.patches.v1_1.remove_category_sync
+mercury_integration.patches.v1_2.set_auto_journal_backfill_days

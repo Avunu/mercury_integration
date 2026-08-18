@@ -28,6 +28,7 @@
   "enable_auto_journal",
   "require_attachment",
   "auto_journal_max_amount",
+  "auto_journal_backfill_days",
   "auto_journal_column",
   "auto_reconcile_transfers",
   "default_cost_center",
@@ -196,6 +197,14 @@
    "fieldname": "auto_journal_max_amount",
    "fieldtype": "Currency",
    "label": "Maximum Amount"
+  },
+  {
+   "default": "90",
+   "depends_on": "eval:doc.enable_auto_journal",
+   "description": "Mercury emits no event when a transaction is GL-coded, and the hourly sync only re-reads the last 3 days \u2014 so anything coded later is never revisited. Once a day, re-check every unreconciled transaction this many days back and book the ones that became codeable. Zero disables the sweep.",
+   "fieldname": "auto_journal_backfill_days",
+   "fieldtype": "Int",
+   "label": "Daily Backfill (Days)"
   },
   {
    "fieldname": "auto_journal_column",
@@ -375,7 +384,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-07-18 12:00:00.000000",
+ "modified": "2026-08-18 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Mercury Integration",
  "name": "Mercury Settings",

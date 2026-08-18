@@ -33,6 +33,7 @@ class MercurySettings(MercuryARGatewayMixin, Document):
 		ar_clearing_account: DF.Link | None
 		ar_destination_bank_account: DF.Link | None
 		ar_email_sender: DF.Literal["ERP", "Mercury"]
+		auto_journal_backfill_days: DF.Int
 		auto_journal_max_amount: DF.Currency
 		auto_reconcile_payouts: DF.Check
 		auto_reconcile_transfers: DF.Check

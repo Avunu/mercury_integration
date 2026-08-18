@@ -43,6 +43,7 @@ scheduler_events = {
 		"mercury_integration.tasks.sync_all_accounts",
 	],
 	"daily": [
+		"mercury_integration.tasks.backfill_auto_journals",
 		"mercury_integration.tasks.check_webhook_health",
 		"mercury_integration.ar.invoices.send_overdue_reminders",
 		"mercury_integration.payouts.recipients.sync_recipients",

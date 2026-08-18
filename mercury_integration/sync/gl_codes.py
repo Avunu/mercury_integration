@@ -30,10 +30,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 import frappe
-from frappe.utils import escape_html
+from frappe.utils import add_days, escape_html, today
 
 from mercury_integration.payouts.recipients import get_party_for_recipient
 from mercury_integration.sync.client_factory import get_client, get_settings
+from mercury_integration.utils.alerts import notify_failure
 
 if TYPE_CHECKING:
 	from mercury_integration.client.models import MercuryTransaction
@@ -304,3 +305,38 @@ def reevaluate_unreconciled(from_date: str | None = None, dry_run: bool = True) 
 		"blocked": blocked,
 		"failed": failed,
 	}
+
+
+def enqueue_reevaluate(days: int) -> None:
+	frappe.enqueue(
+		"mercury_integration.sync.gl_codes.run_reevaluate",
+		days=days,
+		queue="long",
+		job_id="mercury_reevaluate",
+		deduplicate=True,
+	)
+
+
+def run_reevaluate(days: int) -> None:
+	"""Daily sweep body: book what became codeable, digest what could not.
+
+	The sweep is the only channel that catches a late GL code — Mercury emits no
+	event for ``glAllocations`` (its update events cover status/postedAt/amount and
+	``categoryData`` only), and the windowed sync re-reads just
+	``SYNC_OVERLAP_DAYS``. Blocked and failed rows are mailed as one digest per
+	run rather than per transaction; the repeat each day is deliberate, since a
+	blocked row is a misconfiguration nobody would otherwise see.
+	"""
+	from_date = cast("str", add_days(today(), -abs(days)))
+	result = reevaluate_unreconciled(from_date=from_date, dry_run=False)
+
+	problems = cast("list[str]", result["blocked"] + result["failed"])
+	if not problems:
+		return
+	items = "".join(f"<li>{escape_html(problem)}</li>" for problem in problems)
+	notify_failure(
+		f"Daily backfill skipped {len(problems)} transaction(s)",
+		f"The daily auto-journal sweep examined {result['examined']} unreconciled transaction(s)"
+		f" back to {from_date} and booked {len(result['booked'])}."
+		f" These are GL-coded but could not be booked:<ul>{items}</ul>",
+	)
