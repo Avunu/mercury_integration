@@ -262,11 +262,11 @@ def check_webhook_health() -> None:
 		frappe.log_error(title="Mercury webhook health check failed")
 		return
 
-	if webhook.status != settings.webhook_status:
-		frappe.db.set_single_value("Mercury Settings", "webhook_status", webhook.status)
-	if webhook.status == "disabled":
+	status = webhook.status
+	if status == "disabled":
 		try:
 			client.update_webhook(webhook.id, status="active")
+			status = "active"
 			notify_failure(
 				"Webhook was auto-disabled and has been reactivated",
 				"Mercury disabled the webhook endpoint after consecutive delivery failures;"
@@ -277,6 +277,9 @@ def check_webhook_health() -> None:
 				"Webhook is disabled and could not be reactivated",
 				"Event delivery is running on the 15-minute poller only.",
 			)
+
+	if status != settings.webhook_status:
+		frappe.db.set_single_value("Mercury Settings", "webhook_status", status)
 
 
 def enqueue_replay(hours: int = 24) -> None:
