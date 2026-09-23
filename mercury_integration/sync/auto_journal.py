@@ -80,9 +80,18 @@ def _download(url: str) -> bytes | None:
 
 
 def _save_attachment(file_name: str, content: bytes, doctype: str, name: str) -> None:
-	from frappe.utils.file_manager import save_file
-
-	save_file(file_name, content, doctype, name, is_private=1)
+	# Not frappe.utils.file_manager.save_file: it calls the write_file hook with a
+	# (fname, content, ...) signature that cloud_storage's hook doesn't accept.
+	frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": file_name,
+			"content": content,
+			"attached_to_doctype": doctype,
+			"attached_to_name": name,
+			"is_private": 1,
+		}
+	).insert(ignore_permissions=True)
 
 
 def import_attachments(transaction_id: str, bank_transaction: str, journal_entry: str | None = None) -> int:
