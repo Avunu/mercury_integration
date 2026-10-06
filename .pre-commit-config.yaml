@@ -76,6 +76,8 @@ repos:
       - id: validate_copyright
         files: '\.(js|ts|py|md)$'
         args: ['--app', 'mercury_integration']
+        # The documentation (docs/) is Markdown with front matter; a stamp above it breaks the front matter.
+        exclude: '^docs/'
       - id: bylines
         exclude: 'README.md|CHANGELOG.md'
       - id: clean_customized_doctypes
