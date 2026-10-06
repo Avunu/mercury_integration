@@ -47,7 +47,7 @@ Mercury Bank integration for ERPNext: client billing (Accounts Receivable), payr
       --kwargs "{'parties': ['HR-EMP-00008'], 'dry_run': False}"
     ```
     
-    Everyone else onboards via **Send Invite** (payee enters their own bank details; no bank PII in the ERP).
+    Everyone else onboards via **Send Mercury Invite** (payee enters their own bank details; no bank PII in the ERP).
 
 ### Token guidance
 
@@ -80,4 +80,4 @@ Client unit tests (no site needed):
 
 ## License
 
-mit
+MIT, see [license.txt](license.txt).

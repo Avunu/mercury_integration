@@ -3,6 +3,8 @@ name = "mercury_integration"
 authors = [{ name = "Avunu LLC", email = "mail@avu.nu" }]
 description = "Mercury Bank integration: billing, payroll ACH, bank sync, reconciliation, and GL coding"
 requires-python = ">=3.12"
+license = { file = "license.txt" }
+classifiers = ["License :: OSI Approved :: MIT License"]
 readme = "README.md"
 dynamic = ["version"]
 dependencies = ["pydantic>=2.7,<3"]
