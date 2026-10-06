@@ -1,0 +1,10 @@
+{
+ "$schema": "./node_modules/@avunu/docusystem/config.schema.json",
+ "name": "Mercury Integration",
+ "tagline": "Connects ERPNext to Mercury bank for client billing, payroll and vendor ACH, bank sync, reconciliation, and GL-coded journal entries.",
+ "slug": "mercury_integration",
+ "platform": "frappe",
+ "repo": "https://github.com/Avunu/mercury_integration",
+ "domain": "mercury-banking-integration.avunu.net",
+ "license": "MIT"
+}
